@@ -22,8 +22,8 @@ import pytest
 pytest.importorskip("datasets", reason="datasets is required (install lerobot[dataset])")
 
 from lerobot.configs.train import TrainPipelineConfig  # noqa: E402
-from lerobot.policies.act.configuration_act import (
-    ACTConfig,  # noqa: E402, F401  (registers --policy.type act)
+from lerobot.policies.smolvla.configuration_smolvla import (
+    SmolVLAConfig,  # noqa: E402, F401  (registers --policy.type smolvla)
 )
 from lerobot.scripts.lerobot_train import _remote_target_in_argv, train  # noqa: E402
 
@@ -33,7 +33,7 @@ def _set_argv(monkeypatch, *args):
 
 
 def test_remote_target_detected_space_separated(monkeypatch):
-    _set_argv(monkeypatch, "--policy.type", "act", "--job.target", "a10g-small")
+    _set_argv(monkeypatch, "--policy.type", "smolvla", "--job.target", "a10g-small")
     assert _remote_target_in_argv() is True
 
 
@@ -48,7 +48,7 @@ def test_local_string_is_not_remote(monkeypatch):
 
 
 def test_no_target_is_not_remote(monkeypatch):
-    _set_argv(monkeypatch, "--policy.type", "act")
+    _set_argv(monkeypatch, "--policy.type", "smolvla")
     assert _remote_target_in_argv() is False
 
 
@@ -60,7 +60,7 @@ def test_train_dispatches_to_submit_when_remote(monkeypatch):
     monkeypatch.setattr(train_module, "submit_to_hf", lambda cfg: captured.append(cfg) or "submitted")
     cfg = draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act", "--job.target", "a10g-small"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla", "--job.target", "a10g-small"],
     )
     # Returns the submitter's result and never enters the local training path.
     assert train(cfg) == "submitted"

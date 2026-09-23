@@ -15,10 +15,9 @@
 """
 Public API for lerobot configuration types and base config classes.
 
-NOTE: TrainPipelineConfig, EvalPipelineConfig, and TrainRLServerPipelineConfig
-are intentionally NOT re-exported here to avoid circular dependencies
-(they import lerobot.envs and lerobot.policies at module level).
-Import them directly: ``from lerobot.configs.train import TrainPipelineConfig``
+NOTE: TrainPipelineConfig is intentionally NOT re-exported here to avoid circular
+dependencies (it imports lerobot.envs and lerobot.policies at module level).
+Import it directly: ``from lerobot.configs.train import TrainPipelineConfig``
 """
 
 from .dataset import DatasetRecordConfig

@@ -264,11 +264,11 @@ def test_rollout_config_rejects_a_multiplier_below_one(multiplier):
 
 
 def test_build_rollout_context_rejects_missing_policy() -> None:
-    from lerobot.policies.act.configuration_act import ACTConfig
+    from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
     from lerobot.rollout import RolloutConfig, build_rollout_context
     from tests.mocks.mock_robot import MockRobotConfig
 
-    cfg = RolloutConfig(robot=MockRobotConfig(), policy=ACTConfig(device="cpu"), device="cpu")
+    cfg = RolloutConfig(robot=MockRobotConfig(), policy=SmolVLAConfig(device="cpu"), device="cpu")
     # Exercise the context builder's guard, not RolloutConfig.__post_init__ validation.
     cfg.policy = None
 
@@ -292,7 +292,7 @@ def test_build_rollout_context_uses_resolved_device(
     monkeypatch: pytest.MonkeyPatch, checkpoint_device: str, runtime_device: str | None
 ) -> None:
     import lerobot.rollout.context as rollout_context
-    from lerobot.policies.act.configuration_act import ACTConfig
+    from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
     from lerobot.processor import (
         DeviceProcessorStep,
         PolicyProcessorPipeline,
@@ -303,7 +303,7 @@ def test_build_rollout_context_uses_resolved_device(
     from lerobot.utils.constants import OBS_STATE
     from tests.mocks.mock_robot import MockRobot, MockRobotConfig
 
-    policy_config = ACTConfig(device="cpu", pretrained_path=Path("unused-checkpoint"))
+    policy_config = SmolVLAConfig(device="cpu", pretrained_path=Path("unused-checkpoint"))
     # Emulate a checkpoint saved on a different host without needing that device locally.
     policy_config.device = checkpoint_device
     robot_config = MockRobotConfig(random_values=False, static_values=[0.0, 0.0, 0.0])
@@ -311,13 +311,13 @@ def test_build_rollout_context_uses_resolved_device(
     robot = MockRobot(robot_config)
     policy = torch.nn.Linear(3, 3)
 
-    def load_policy(config: ACTConfig) -> torch.nn.Linear:
+    def load_policy(config: SmolVLAConfig) -> torch.nn.Linear:
         # Check at construction time: synchronizing after the load would be too late.
         assert config.device == cfg.device == (runtime_device or checkpoint_device)
         return policy
 
     def make_processors(
-        *, policy_cfg: ACTConfig, preprocessor_overrides: dict[str, dict[str, str]], **kwargs: object
+        *, policy_cfg: SmolVLAConfig, preprocessor_overrides: dict[str, dict[str, str]], **kwargs: object
     ) -> tuple[PolicyProcessorPipeline, PolicyProcessorPipeline]:
         assert policy_cfg.device == preprocessor_overrides["device_processor"]["device"]
         processor = PolicyProcessorPipeline(

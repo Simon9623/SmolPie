@@ -19,15 +19,24 @@ from typing import Any
 import torch
 
 from lerobot.processor import (
+    FastActionTargetProcessorStep,
     NewLineTaskProcessorStep,
     PolicyAction,
     PolicyProcessorPipeline,
+    SubtaskBoundaryProcessorStep,
     TokenizerProcessorStep,
     make_default_policy_processor_steps,
     make_policy_processor_pipelines,
 )
+from lerobot.utils.import_utils import _transformers_available
 
 from .configuration_smolvla import SmolVLAConfig
+from .smolvlm_with_expert import add_subtask_special_tokens
+
+if _transformers_available:
+    from transformers import AutoTokenizer
+else:
+    AutoTokenizer = None
 
 
 def make_smolvla_pre_post_processors(
@@ -62,16 +71,36 @@ def make_smolvla_pre_post_processors(
 
     steps = make_default_policy_processor_steps(config, dataset_stats)
 
+    # Built explicitly (rather than via `tokenizer_name=`) so the `<subtask>`/`</subtask>`
+    # special tokens are registered on this exact tokenizer instance, using the same helper
+    # (and thus the same resulting token ids) as `SmolVLMWithExpertModel` uses to resize the
+    # model's embedding table. See `add_subtask_special_tokens`.
+    tokenizer = AutoTokenizer.from_pretrained(config.vlm_model_name)
+    add_subtask_special_tokens(tokenizer, config.subtask_start_token, config.subtask_end_token)
+
     input_steps = [
         steps.rename_observations,  # To mimic the same processor as pretrained one
         steps.add_batch_dim,
         NewLineTaskProcessorStep(),
+        SubtaskBoundaryProcessorStep(
+            subtask_start_token=config.subtask_start_token,
+            subtask_end_token=config.subtask_end_token,
+        ),
         TokenizerProcessorStep(
-            tokenizer_name=config.vlm_model_name,
+            tokenizer=tokenizer,
             padding=config.pad_language_to,
             padding_side="right",
             max_length=config.tokenizer_max_length,
         ),
+    ]
+    if config.fast_token_loss_weight > 0:
+        input_steps.append(
+            FastActionTargetProcessorStep(
+                action_tokenizer_name=config.fast_tokenizer_name,
+                max_fast_tokens=config.max_fast_tokens,
+            )
+        )
+    input_steps += [
         steps.to_device,
         steps.normalize,
     ]

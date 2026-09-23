@@ -33,20 +33,6 @@ class TestDeclarativeAttributes:
         assert PreTrainedPolicy.supports_gradient_checkpointing is False
         assert PreTrainedPolicy._cp_plan is None
 
-    def test_act_wrap_units_name_real_classes(self):
-        """The declared class names must track the modeling code — this test pins the drift."""
-        from lerobot.policies.act import modeling_act
-
-        for name in modeling_act.ACTPolicy._fsdp_wrap_modules:
-            assert isinstance(getattr(modeling_act, name), type), name
-
-    def test_fastwam_wrap_units_name_real_classes(self):
-        from lerobot.policies.fastwam import modeling_fastwam
-        from lerobot.policies.fastwam.wan import modular
-
-        for name in modeling_fastwam.FastWAMPolicy._fsdp_wrap_modules:
-            assert isinstance(getattr(modular, name), type), name
-
 
 class _SelfAttn(nn.Module):
     def forward(self, x, attention_mask=None, is_causal=False):

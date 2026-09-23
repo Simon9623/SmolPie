@@ -46,9 +46,6 @@ from lerobot.utils.constants import (
 from lerobot.utils.feature_utils import dataset_to_policy_features
 from lerobot.utils.import_utils import _peft_available, require_package
 
-from .evo1.configuration_evo1 import Evo1Config
-from .groot.configuration_groot import GrootConfig
-from .molmoact2.configuration_molmoact2 import MolmoAct2Config
 from .pretrained import PreTrainedPolicy
 from .utils import validate_visual_features_consistency
 
@@ -179,44 +176,6 @@ def make_pre_post_processors(
         ValueError: If no processor factory exists for the given policy configuration type.
     """
     if pretrained_path:
-        if isinstance(policy_cfg, GrootConfig):
-            from .groot.processor_groot import make_groot_pre_post_processors_from_pretrained
-
-            return make_groot_pre_post_processors_from_pretrained(
-                config=policy_cfg,
-                pretrained_path=pretrained_path,
-                revision=pretrained_revision,
-                dataset_stats=kwargs.get("dataset_stats"),
-                dataset_meta=kwargs.get("dataset_meta"),
-                preprocessor_overrides=kwargs.get("preprocessor_overrides"),
-                postprocessor_overrides=kwargs.get("postprocessor_overrides"),
-                preprocessor_config_filename=kwargs.get(
-                    "preprocessor_config_filename", f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json"
-                ),
-                postprocessor_config_filename=kwargs.get(
-                    "postprocessor_config_filename", f"{POLICY_POSTPROCESSOR_DEFAULT_NAME}.json"
-                ),
-            )
-
-        if isinstance(policy_cfg, MolmoAct2Config):
-            from .molmoact2.processor_molmoact2 import (
-                make_molmoact2_pre_post_processors_from_pretrained,
-            )
-
-            return make_molmoact2_pre_post_processors_from_pretrained(
-                config=policy_cfg,
-                pretrained_path=pretrained_path,
-                revision=pretrained_revision,
-                preprocessor_overrides=kwargs.get("preprocessor_overrides"),
-                postprocessor_overrides=kwargs.get("postprocessor_overrides"),
-                preprocessor_config_filename=kwargs.get(
-                    "preprocessor_config_filename", f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json"
-                ),
-                postprocessor_config_filename=kwargs.get(
-                    "postprocessor_config_filename", f"{POLICY_POSTPROCESSOR_DEFAULT_NAME}.json"
-                ),
-            )
-
         preprocessor = PolicyProcessorPipeline.from_pretrained(
             pretrained_model_name_or_path=pretrained_path,
             config_filename=kwargs.get(
@@ -238,14 +197,6 @@ def make_pre_post_processors(
             revision=pretrained_revision,
         )
         _reconnect_relative_absolute_steps(preprocessor, postprocessor)
-        if isinstance(policy_cfg, Evo1Config):
-            from .evo1.processor_evo1 import reconcile_evo1_processors
-
-            preprocessor, postprocessor = reconcile_evo1_processors(
-                policy_cfg,
-                preprocessor,
-                postprocessor,
-            )
         return preprocessor, postprocessor
 
     # Create new processors from the policy config, resolving the per-policy factory
@@ -292,24 +243,9 @@ def make_policy(
 
     Raises:
         ValueError: If both or neither of `ds_meta` and `env_cfg` are provided.
-        NotImplementedError: If attempting to use an unsupported policy-backend combination
-            (e.g., VQBeT with 'mps').
     """
     if bool(ds_meta) == bool(env_cfg):
         raise ValueError("Either one of a dataset metadata or a sim env must be provided.")
-
-    # NOTE: Currently, if you try to run vqbet with mps backend, you'll get this error.
-    # TODO(aliberts, rcadene): Implement a check_backend_compatibility in policies?
-    # NotImplementedError: The operator 'aten::unique_dim' is not currently implemented for the MPS device. If
-    # you want this op to be added in priority during the prototype phase of this feature, please comment on
-    # https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment
-    # variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be
-    # slower than running natively on MPS.
-    if cfg.type == "vqbet" and cfg.device == "mps":
-        raise NotImplementedError(
-            "Current implementation of VQBeT does not support `mps` backend. "
-            "Please use `cpu` or `cuda` backend."
-        )
 
     policy_cls = get_policy_class(cfg.type)
 
@@ -360,7 +296,7 @@ def make_policy(
 
     kwargs["config"] = cfg
 
-    # Pass dataset_stats to the policy if available (needed for some policies like SARM)
+    # Pass dataset_stats to the policy if available
     if ds_meta is not None and hasattr(ds_meta, "stats"):
         kwargs["dataset_stats"] = ds_meta.stats
 
@@ -498,7 +434,7 @@ def _make_processors_from_policy_config(
         config: The policy configuration object.
         dataset_stats: Dataset statistics for normalization.
         dataset_meta: Dataset metadata, forwarded only to factories that declare a
-            ``dataset_meta`` parameter (e.g. groot, molmoact2).
+            ``dataset_meta`` parameter.
     Returns:
         A tuple containing the input (pre-processor) and output (post-processor) pipelines.
     """

@@ -79,10 +79,10 @@ def test_resolve_resume_checkpoint_accepts_file_or_pretrained_model_dir(tmp_path
     (pretrained_dir / "train_config.json").touch()
     target = pretrained_dir if pass_dir else pretrained_dir / "train_config.json"
 
-    from lerobot.policies.act.configuration_act import ACTConfig
+    from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
 
     cfg = tc.draccus.parse(TrainPipelineConfig, args=["--dataset.repo_id", "u/d"])
-    cfg.policy = ACTConfig()
+    cfg.policy = SmolVLAConfig()
     cfg.resume = True
     monkeypatch.setattr(tc.parser, "parse_arg", lambda name: str(target) if name == "config_path" else None)
 

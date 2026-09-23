@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This script demonstrates how to train a Diffusion Policy on the PushT environment,
-using a dataset processed in streaming mode."""
+"""This script demonstrates how to train a SmolVLA policy on a dataset processed in
+streaming mode."""
 
 from pathlib import Path
 
@@ -22,7 +22,7 @@ import torch
 from lerobot.configs import FeatureType
 from lerobot.datasets import LeRobotDatasetMetadata, StreamingLeRobotDataset
 from lerobot.policies import make_pre_post_processors
-from lerobot.policies.act import ACTConfig, ACTPolicy
+from lerobot.policies.smolvla import SmolVLAConfig, SmolVLAPolicy
 from lerobot.utils.constants import ACTION
 from lerobot.utils.feature_utils import dataset_to_policy_features
 
@@ -52,8 +52,8 @@ def main():
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
 
     # We can now instantiate our policy with this config and the dataset stats.
-    cfg = ACTConfig(input_features=input_features, output_features=output_features)
-    policy = ACTPolicy(cfg)
+    cfg = SmolVLAConfig(input_features=input_features, output_features=output_features)
+    policy = SmolVLAPolicy(cfg)
     policy.train()
     policy.to(device)
     preprocessor, postprocessor = make_pre_post_processors(cfg, dataset_stats=dataset_metadata.stats)

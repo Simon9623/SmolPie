@@ -1,6 +1,8 @@
 # AGENT_GUIDE.md — LeRobot Helper for AI Agents & Users
 
-This file is a practical, copy-paste-friendly companion for any AI agent (Cursor, Claude, ChatGPT, Codex, etc.) helping a user work with LeRobot. It complements [`AGENTS.md`](./AGENTS.md) (dev/contributor context) with **user-facing guidance**: how to start, what to train, how long, how to record, and how to calibrate an SO-101.
+This file is a practical, copy-paste-friendly companion for any AI agent (Cursor, Claude, ChatGPT, Codex, etc.) helping a user work with LeRobot. It complements [`AGENTS.md`](./AGENTS.md) (dev/contributor context) with **user-facing guidance**: how to start, how to record, and how to train and inference-test **SmolVLA**.
+
+> This is a trimmed fork focused solely on SmolVLA training and real-robot inference testing. Other policies, sim-benchmark evaluation (`lerobot-eval`), and RL training were removed — see `AGENTS.md` for what's in/out of scope.
 
 ---
 
@@ -29,10 +31,10 @@ Only after you have answers, propose a concrete path. If something is ambiguous,
 LeRobot = **datasets + policies + envs + robot control**, unified by a small set of strong abstractions.
 
 - **`LeRobotDataset`** — episode-aware dataset (video or images + actions + state), loadable from the Hub or disk.
-- **Policies** (`ACT`, `Diffusion`, `SmolVLA`, `π0`, `π0.5`, `Wall-X`, `X-VLA`, `VQ-BeT`, `TD-MPC`, …) — all inherit `PreTrainedPolicy` and can be pushed/pulled from the Hub.
+- **Policies** — this fork only ships `SmolVLA`, a small vision-language-action model. It inherits `PreTrainedPolicy` and can be pushed/pulled from the Hub.
 - **Processors** — small composable transforms between dataset → policy → robot.
-- **Envs** (sim) and **Robots** (real) — same action/observation contract so code swaps cleanly.
-- **CLI** — `lerobot-record`, `lerobot-train`, `lerobot-eval`, `lerobot-teleoperate`, `lerobot-calibrate`, `lerobot-find-port`, `lerobot-setup-motors`, `lerobot-replay`.
+- **Robots** (real) — hardware abstraction for recording and running policies. Sim `Envs` were trimmed to the minimum needed for type plumbing (no benchmark suites).
+- **CLI** — `lerobot-record`, `lerobot-train`, `lerobot-rollout`, `lerobot-teleoperate`, `lerobot-calibrate`, `lerobot-find-port`, `lerobot-setup-motors`, `lerobot-replay`.
 
 See [`AGENTS.md`](./AGENTS.md) for repo architecture.
 
@@ -40,17 +42,17 @@ See [`AGENTS.md`](./AGENTS.md) for repo architecture.
 
 ## 3. Quickstart paths (pick one)
 
-### Path A — "I have an SO-101 and want my first trained policy"
+### Path A — "I have an SO-101 and want my first trained SmolVLA policy"
 
-Go to §4 (SO-101 end-to-end), then §5 (data tips), then §6 (pick a policy — likely **ACT**), then §7 (how long), then §8 (eval).
+Go to §4 (SO-101 end-to-end), then §5 (data tips), then §7 (how long), then §8 (eval).
 
 ### Path B — "No hardware, I want to train on an existing dataset"
 
-Skip §4. Pick a policy in §6, pick a duration in §7, then run `lerobot-train` per §4.9 with a Hub `--dataset.repo_id` and an `--env.type` for eval. Finish with §8.
+Skip §4. Pick a duration in §7, then run `lerobot-train` per §4.9 with a Hub `--dataset.repo_id`. Finish with §8.1 (real-robot eval) once you have hardware, or the inference smoke-test in `make test-smolvla-ete-eval` to sanity-check a checkpoint without hardware.
 
 ### Path C — "I just want to understand the codebase"
 
-Read §2 above, then `AGENTS.md` "Architecture", then open `src/lerobot/policies/act/` and `src/lerobot/datasets/lerobot_dataset.py` as canonical examples.
+Read §2 above, then `AGENTS.md` "Architecture", then open `src/lerobot/policies/smolvla/` and `src/lerobot/datasets/lerobot_dataset.py` as canonical examples.
 
 ---
 
@@ -142,18 +144,18 @@ lerobot-replay --robot.type=so101_follower --robot.port=<FOLLOWER_PORT> --robot.
   --dataset.repo_id=${HF_USER}/my_task --dataset.episode=0
 ```
 
-**4.9 Train** (default: ACT — fastest, lowest memory). Apple silicon: `--policy.device=mps`. No local GPU? Add `--job.target=<flavor>` (e.g. `a10g-small`, list them with `hf jobs hardware`) to run on Hugging Face Jobs instead. See §6/§7 for policy and duration.
+**4.9 Train.** Apple silicon: `--policy.device=mps`. No local GPU? Add `--job.target=<flavor>` (e.g. `a10g-small`, list them with `hf jobs hardware`) to run on Hugging Face Jobs instead. See §7 for duration.
 
 ```bash
 lerobot-train \
   --dataset.repo_id=${HF_USER}/my_task \
-  --policy.type=act \
+  --policy.type=smolvla \
   --policy.device=cuda \
-  --output_dir=outputs/train/act_my_task \
-  --job_name=act_my_task \
+  --output_dir=outputs/train/smolvla_my_task \
+  --job_name=smolvla_my_task \
   --batch_size=8 \
   --wandb.enable=true \
-  --policy.repo_id=${HF_USER}/act_my_task
+  --policy.repo_id=${HF_USER}/smolvla_my_task
 ```
 
 **4.10 Evaluate on the real robot** — compare success rate to a teleoperated baseline.
@@ -165,7 +167,7 @@ lerobot-record \
   --dataset.repo_id=${HF_USER}/eval_my_task \
   --dataset.single_task="<same task description as training>" \
   --dataset.num_episodes=10 \
-  --policy.path=${HF_USER}/act_my_task
+  --policy.path=${HF_USER}/smolvla_my_task
 ```
 
 ---
@@ -197,15 +199,13 @@ Same grasp, approach vector, and timing. Coherent strategies are much easier to 
 ### 5.5 Start small, then extend (the golden rule)
 
 - **First 50 episodes = constrained version** of the task: one object, fixed position, fixed camera setup, one operator.
-- Train a quick ACT model. See what fails.
+- Train a quick SmolVLA run. See what fails.
 - **Then add diversity** along one axis at a time: more positions → more lighting → more objects → more operators.
 - Don't try to collect the "perfect dataset" on day one. Iterate.
 
-### 5.6 Policy choice for beginners
+### 5.6 Policy: SmolVLA
 
-- **Laptop / first time / want results fast → ACT.** Works surprisingly well, trains fast even on a laptop GPU.
-- **Bigger GPU / language-conditioned / multi-task → SmolVLA.** Unfreezing the vision encoder (see §7) is a big win here.
-- Defer π0 / π0.5 / Wall-X / X-VLA until you have a proven ACT baseline and a 20+ GB GPU.
+This fork only ships SmolVLA (language-conditioned, multi-task, small VLA — needs **12–16 GB VRAM** with defaults; see §6). Unfreezing the vision encoder (see §7.6) is a big win once you have a working baseline.
 
 ### 5.7 Recommended defaults for your first task
 
@@ -228,37 +228,31 @@ See also: [What makes a good dataset](https://huggingface.co/blog/lerobot-datase
 
 ---
 
-## 6. Which policy should I train?
+## 6. Do I have enough GPU for SmolVLA?
 
-Match the policy to the user's **GPU memory** and **time budget**. Numbers below come from an internal profiling run (one training update per policy). They are **indicative only** — see caveats.
+SmolVLA is the only policy in this fork, so there's no policy choice to make — just check whether the hardware can run it.
 
 ### 6.1 Profiling snapshot (indicative)
 
-All policies typically train for **5–10 epochs** (see §7).
+Typically trains for **5–10 epochs** (see §7).
 
-> **Human-facing version:** the [Compute Hardware Guide](./docs/source/hardware_guide.mdx) reuses the table below and adds a cloud-GPU tier guide and a Hugging Face Jobs pointer.
+> **Human-facing version:** the [Compute Hardware Guide](./docs/source/hardware_guide.mdx) has a cloud-GPU tier guide and a Hugging Face Jobs pointer.
 
-| Policy      | Batch | Update (ms) | Peak GPU mem (GB) | Best for                                                                                         |
-| ----------- | ----: | ----------: | ----------------: | ------------------------------------------------------------------------------------------------ |
-| `act`       |     4 |    **83.9** |          **0.94** | First-time users, laptops, single-task. Fast and reliable.                                       |
-| `diffusion` |     4 |       168.6 |              4.94 | Multi-modal action distributions; needs mid-range GPU.                                           |
-| `smolvla`   |     1 |       357.8 |              3.93 | Language-conditioned, multi-task, small VLA. **Unfreeze vision encoder for big gains** (see §7). |
-| `xvla`      |     1 |       731.6 |             15.52 | Large VLA, multi-task.                                                                           |
-| `wall_x`    |     1 |       716.5 |             15.95 | Large VLA with world-model objective.                                                            |
-| `pi0`       |     1 |       940.3 |             15.50 | Strong large VLA baseline (Physical Intelligence).                                               |
-| `pi05`      |     1 |      1055.8 |             16.35 | Newer π policy; similar footprint to `pi0`.                                                      |
+| Policy    | Batch | Update (ms) | Peak GPU mem (GB) | Notes                                                                       |
+| --------- | ----: | ----------: | -----------------: | ---------------------------------------------------------------------------- |
+| `smolvla` |     1 |       357.8 |               3.93 | **Unfreeze vision encoder for big gains** (see §7.6); measured with frozen encoder. |
 
 **Critical caveats:**
 
-- **Optimizer:** measured with **SGD**. LeRobot's default is **AdamW**, which keeps extra optimizer state → **peak memory will be noticeably higher** with the default, especially for `pi0`, `pi05`, `wall_x`, `xvla`.
-- **Batch size:** the large policies were profiled at batch 1. In practice use a **larger batch** for stable training (see §7.4). Memory scales roughly linearly with batch.
+- **Optimizer:** measured with **SGD**. LeRobot's default is **AdamW**, which keeps extra optimizer state → **peak memory will be noticeably higher** with the default.
+- **Batch size:** memory scales roughly linearly with batch; use gradient accumulation if VRAM-constrained (see §7.4).
 
 ### 6.2 Decision rules
 
-- **< 8 GB VRAM (laptop, 3060, M-series Mac):** → `act`. Maybe `diffusion` if you have ~6–8 GB free.
-- **12–16 GB VRAM (4070/4080, A4000):** → `smolvla` with defaults, or `act`/`diffusion` with larger batch. `pi0`/`pi05`/`wall_x`/`xvla` feasible only with small batch + gradient accumulation.
-- **24+ GB VRAM (3090/4090/A5000):** → any policy. Prefer `smolvla` (unfrozen) for multi-task; `act` for single-task grasp-and-place (still often the best ROI). Could experiment with `pi0` or `pi05` or `xvla`
-- **80 GB (A100/H100):** → any, with healthy batch. `pi05`, `xvla`, `wall_x` become comfortable.
+- **< 8 GB VRAM (laptop, 3060, M-series Mac):** → feasible only with small batch + gradient accumulation, frozen vision encoder.
+- **12–16 GB VRAM (4070/4080, A4000):** → SmolVLA with defaults.
+- **24+ GB VRAM (3090/4090/A5000):** → unfreeze the vision encoder (§7.6) for better results.
+- **80 GB (A100/H100):** → healthy batch, unfrozen vision encoder, comfortable headroom.
 - **CPU only:** → don't train here. Use Google Colab (see [`docs/source/notebooks.mdx`](./docs/source/notebooks.mdx)) or a rented GPU.
 
 ---
@@ -291,14 +285,11 @@ Examples for `--batch_size=8`:
 
 Pass the resulting total with `--steps=<N>`; eval at intermediate checkpoints (`outputs/train/.../checkpoints/`).
 
-### 7.3 Per-policy starting points (single-task, ~50 episodes)
+### 7.3 SmolVLA starting point (single-task, ~50 episodes)
 
-| Policy         | Batch | Steps (first run) | Notes                                                             |
-| -------------- | ----: | ----------------: | ----------------------------------------------------------------- |
-| `act`          |  8–16 |           30k–80k | Usually converges under 50k for single-task.                      |
-| `diffusion`    |  8–16 |          80k–150k | Benefits from longer training than ACT.                           |
-| `smolvla`      |   4–8 |           30k–80k | Pretrained VLM → converges fast.                                  |
-| `pi0` / `pi05` |   1–4 |           30k–80k | Memory-bound; use gradient accumulation for effective batch ≥ 16! |
+| Policy    | Batch | Steps (first run) | Notes                             |
+| --------- | ----: | -----------------: | ---------------------------------- |
+| `smolvla` |   4–8 |           30k–80k | Pretrained VLM → converges fast.   |
 
 ### 7.4 Batch size guidance
 
@@ -336,9 +327,7 @@ lerobot-train ... --policy.type=smolvla \
 
 ---
 
-## 8. Evaluation & benchmarks
-
-Two flavors of evaluation:
+## 8. Evaluation
 
 ### 8.1 Real-robot eval (SO-101, etc.)
 
@@ -351,66 +340,25 @@ lerobot-record \
   --dataset.repo_id=${HF_USER}/eval_my_task \
   --dataset.single_task="<same task description used during training>" \
   --dataset.num_episodes=10 \
-  --policy.path=${HF_USER}/act_my_task
+  --policy.path=${HF_USER}/smolvla_my_task
 ```
 
 Report success rate across episodes. Compare to a teleoperated baseline and to an earlier checkpoint to catch regressions.
 
-### 8.2 Sim-benchmark eval
+### 8.2 No-hardware inference smoke test
 
-For policies trained on sim datasets (PushT, Aloha, LIBERO, MetaWorld, RoboCasa, …) use `lerobot-eval` against the matching `env.type`:
-
-```bash
-lerobot-eval \
-  --policy.path=${HF_USER}/diffusion_pusht \
-  --env.type=pusht \
-  --eval.n_episodes=50 \
-  --eval.batch_size=10 \
-  --policy.device=cuda
-```
-
-- Use `--policy.path=outputs/train/.../checkpoints/<step>/pretrained_model` for local checkpoints.
-- `--eval.n_episodes` should be ≥ 50 for a stable success-rate estimate.
-- Available envs live in `src/lerobot/envs/`. See [`docs/source/libero.mdx`](./docs/source/libero.mdx), [`metaworld.mdx`](./docs/source/metaworld.mdx), [`robocasa.mdx`](./docs/source/robocasa.mdx), [`vlabench.mdx`](./docs/source/vlabench.mdx) for specific benchmarks.
-- To add a new benchmark, see [`docs/source/adding_benchmarks.mdx`](./docs/source/adding_benchmarks.mdx) and [`envhub.mdx`](./docs/source/envhub.mdx).
-
-### 8.2b Dockerfiles for benchmark eval
-
-Benchmark envs have native dependencies that are painful to install locally. The repo ships **pre-baked Dockerfiles** for each supported benchmark — use these to run `lerobot-eval` in a reproducible environment:
-
-| Benchmark   | Dockerfile                                                                             |
-| ----------- | -------------------------------------------------------------------------------------- |
-| LIBERO      | [`docker/Dockerfile.benchmark.libero`](./docker/Dockerfile.benchmark.libero)           |
-| LIBERO+     | [`docker/Dockerfile.benchmark.libero_plus`](./docker/Dockerfile.benchmark.libero_plus) |
-| MetaWorld   | [`docker/Dockerfile.benchmark.metaworld`](./docker/Dockerfile.benchmark.metaworld)     |
-| RoboCasa    | [`docker/Dockerfile.benchmark.robocasa`](./docker/Dockerfile.benchmark.robocasa)       |
-| RoboCerebra | [`docker/Dockerfile.benchmark.robocerebra`](./docker/Dockerfile.benchmark.robocerebra) |
-| RoboMME     | [`docker/Dockerfile.benchmark.robomme`](./docker/Dockerfile.benchmark.robomme)         |
-| RoboTwin    | [`docker/Dockerfile.benchmark.robotwin`](./docker/Dockerfile.benchmark.robotwin)       |
-| VLABench    | [`docker/Dockerfile.benchmark.vlabench`](./docker/Dockerfile.benchmark.vlabench)       |
-
-Build and run (adapt to your benchmark):
-
-```bash
-docker build -f docker/Dockerfile.benchmark.robomme -t lerobot-bench-robomme .
-docker run --gpus all --rm -it \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
-  lerobot-bench-robomme \
-  lerobot-eval --policy.path=<your_policy> --env.type=<env> --eval.n_episodes=50
-```
-
-See [`docker/README.md`](./docker/README.md) for base-image details.
+To sanity-check a checkpoint without a robot, load it and run a real `select_action()` forward pass on a dataset frame — see `utils/smolvla_inference_smoke_test.py` (used by `make test-smolvla-ete-eval`). This only checks that inference runs and produces a valid action shape, not task success.
 
 ### 8.3 Target success rates
 
-Single-task grasp-and-place with 50 clean episodes: ACT should reach **> 70% success** on the training configuration. Less → data problem (see §5), not model problem. Expect a drop when generalizing to new positions — scale episodes or diversity to recover.
+Single-task grasp-and-place with 50 clean episodes: expect **> 70% success** on the training configuration. Less → data problem (see §5), not model problem. Expect a drop when generalizing to new positions — scale episodes or diversity to recover.
 
 ---
 
 ## 9. Further reading & resources
 
 - **Getting started:** [`installation.mdx`](./docs/source/installation.mdx) · [`il_robots.mdx`](./docs/source/il_robots.mdx) · [What makes a good dataset](https://huggingface.co/blog/lerobot-datasets)
-- **Per-policy docs:** browse [`docs/source/*.mdx`](./docs/source/) (policies, hardware, benchmarks, advanced training).
+- **SmolVLA & hardware docs:** browse [`docs/source/*.mdx`](./docs/source/) (`smolvla.mdx`, hardware guides, advanced training).
 - **Community:** [Discord](https://discord.com/invite/s3KuuzsPFb) · [Hub `LeRobot` tag](https://huggingface.co/datasets?other=LeRobot) · [Dataset visualizer](https://huggingface.co/spaces/lerobot/visualize_dataset)
 
 > Keep this file current. If you learn a rule that would prevent a class of user mistakes, add it here and in [`AGENTS.md`](./AGENTS.md).

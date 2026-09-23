@@ -39,7 +39,7 @@ def test_jobconfig_flavor_is_remote():
 def test_train_config_parses_job_target():
     parsed = draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act", "--job.target", "a10g-small"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla", "--job.target", "a10g-small"],
     )
     assert parsed.job.target == "a10g-small"
     assert parsed.job.is_remote is True
@@ -53,7 +53,7 @@ def test_save_checkpoint_to_hub_requires_repo_id():
             "--dataset.repo_id",
             "u/d",
             "--policy.type",
-            "act",
+            "smolvla",
             "--policy.push_to_hub",
             "false",
             "--save_checkpoint_to_hub",

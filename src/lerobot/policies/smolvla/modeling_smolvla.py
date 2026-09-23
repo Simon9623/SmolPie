@@ -60,7 +60,16 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 from torch import Tensor, nn
 
-from lerobot.utils.constants import ACTION, OBS_LANGUAGE_ATTENTION_MASK, OBS_LANGUAGE_TOKENS, OBS_STATE
+from lerobot.utils.constants import (
+    ACTION,
+    FAST_ACTION_TOKEN_MASK,
+    FAST_ACTION_TOKENS,
+    OBS_LANGUAGE_ATTENTION_MASK,
+    OBS_LANGUAGE_SUBTASK_ATTENTION_MASK,
+    OBS_LANGUAGE_SUBTASK_TOKENS,
+    OBS_LANGUAGE_TOKENS,
+    OBS_STATE,
+)
 from lerobot.utils.import_utils import require_package
 
 from ..common.flow_matching import euler_integrate, sample_noise, sample_time_beta
@@ -295,41 +304,100 @@ class SmolVLAPolicy(PreTrainedPolicy):
         state = self.prepare_state(batch)
         lang_tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
         lang_masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
-        actions = self.prepare_action(batch)
         actions_is_pad = batch.get("action_is_pad")
         loss_dict = {}
-        losses = self.model.forward(images, img_masks, lang_tokens, lang_masks, state, actions, noise, time)
-        original_action_dim = self.config.action_feature.shape[0]
-        losses = losses[:, :, :original_action_dim]
-        loss_dict["losses_after_forward"] = losses.clone().mean().item()
 
-        if actions_is_pad is not None:
-            in_episode_bound = ~actions_is_pad
-            losses = losses * in_episode_bound.unsqueeze(-1)
-            loss_dict["losses_after_in_ep_bound"] = losses.clone().mean().item()
+        # --- Stage 1: hierarchical subtask + FAST-token auxiliary CE (docs/plan.md §9-12) ---
+        # No action expert is invoked here at all when both weights are 0 (the default).
+        subtask_tokens = batch.get(OBS_LANGUAGE_SUBTASK_TOKENS)
+        subtask_masks = batch.get(OBS_LANGUAGE_SUBTASK_ATTENTION_MASK)
+        fast_tokens = batch.get(FAST_ACTION_TOKENS)
+        fast_masks = batch.get(FAST_ACTION_TOKEN_MASK)
 
-        # Remove padding
-        losses = losses[:, :, : self.config.max_action_dim]
-        loss_dict["losses_after_rm_padding"] = losses.clone().mean().item()
+        subtask_loss = torch.zeros((), device=state.device)
+        fast_loss = torch.zeros((), device=state.device)
+        if self.config.subtask_loss_weight > 0 or self.config.fast_token_loss_weight > 0:
+            subtask_loss, fast_loss = self.model.compute_stage1_losses(
+                images,
+                img_masks,
+                lang_tokens,
+                lang_masks,
+                state,
+                subtask_tokens=subtask_tokens if self.config.subtask_loss_weight > 0 else None,
+                subtask_masks=subtask_masks if self.config.subtask_loss_weight > 0 else None,
+                fast_tokens=fast_tokens if self.config.fast_token_loss_weight > 0 else None,
+                fast_masks=fast_masks if self.config.fast_token_loss_weight > 0 else None,
+            )
+            loss_dict["subtask_loss"] = subtask_loss.item()
+            loss_dict["fast_loss"] = fast_loss.item()
+
+        # --- Stage 2: continuous-action Flow Matching, optionally GT-subtask-conditioned ---
+        fm_loss = torch.zeros((), device=state.device)
+        per_sample_fm_loss = None
+        if self.config.flow_matching_loss_weight > 0:
+            actions = self.prepare_action(batch)
+            cond_subtask_tokens = subtask_tokens if self.config.condition_on_subtask else None
+            cond_subtask_masks = subtask_masks if self.config.condition_on_subtask else None
+            losses = self.model.forward(
+                images,
+                img_masks,
+                lang_tokens,
+                lang_masks,
+                state,
+                actions,
+                noise,
+                time,
+                subtask_tokens=cond_subtask_tokens,
+                subtask_masks=cond_subtask_masks,
+            )
+            original_action_dim = self.config.action_feature.shape[0]
+            losses = losses[:, :, :original_action_dim]
+            loss_dict["losses_after_forward"] = losses.clone().mean().item()
+
+            if actions_is_pad is not None:
+                in_episode_bound = ~actions_is_pad
+                losses = losses * in_episode_bound.unsqueeze(-1)
+                loss_dict["losses_after_in_ep_bound"] = losses.clone().mean().item()
+
+            # Remove padding
+            losses = losses[:, :, : self.config.max_action_dim]
+            loss_dict["losses_after_rm_padding"] = losses.clone().mean().item()
+
+            if actions_is_pad is None:
+                fm_loss = losses.mean()
+            else:
+                num_valid = ((~actions_is_pad).sum() * losses.shape[-1]).clamp_min(1)
+                fm_loss = losses.sum() / num_valid
+
+            if reduction == "none":
+                if actions_is_pad is None:
+                    per_sample_fm_loss = losses.mean(dim=(1, 2))
+                else:
+                    num_valid = ((~actions_is_pad).sum(dim=1) * losses.shape[-1]).clamp_min(1)
+                    per_sample_fm_loss = losses.sum(dim=(1, 2)) / num_valid
+
+        total_weighted_loss = (
+            self.config.flow_matching_loss_weight * fm_loss
+            + self.config.subtask_loss_weight * subtask_loss
+            + self.config.fast_token_loss_weight * fast_loss
+        )
 
         if reduction == "none":
-            # Return per-sample losses (B,) by averaging over valid (time, action) entries
-            if actions_is_pad is None:
-                per_sample_loss = losses.mean(dim=(1, 2))
-            else:
-                num_valid = ((~actions_is_pad).sum(dim=1) * losses.shape[-1]).clamp_min(1)
-                per_sample_loss = losses.sum(dim=(1, 2)) / num_valid
+            # Per-sample losses (B,) are only meaningful for the flow-matching term (used for
+            # RA-BC-style sample weighting); Stage-1 aux losses stay batch-scalar and are folded
+            # in as a constant offset shared across the batch.
+            if per_sample_fm_loss is None:
+                per_sample_fm_loss = torch.zeros(state.shape[0], device=state.device)
+            per_sample_loss = (
+                self.config.flow_matching_loss_weight * per_sample_fm_loss
+                + self.config.subtask_loss_weight * subtask_loss
+                + self.config.fast_token_loss_weight * fast_loss
+            )
             loss_dict["loss"] = per_sample_loss.mean().item()
             return per_sample_loss, loss_dict
         else:
-            # Default: return scalar mean loss over valid (time, action) entries
-            if actions_is_pad is None:
-                loss = losses.mean()
-            else:
-                num_valid = ((~actions_is_pad).sum() * losses.shape[-1]).clamp_min(1)
-                loss = losses.sum() / num_valid
-            loss_dict["loss"] = loss.item()
-            return loss, loss_dict
+            loss_dict["loss"] = total_weighted_loss.item()
+            return total_weighted_loss, loss_dict
 
     def prepare_images(self, batch):
         """Apply SmolVLA preprocessing to the images, like resizing to 224x224 and padding to keep aspect ratio, and
@@ -504,10 +572,11 @@ class VLAFlowMatching(nn.Module):
             self_attn_every_n_layers=self.config.self_attn_every_n_layers,
             expert_width_multiplier=self.config.expert_width_multiplier,
             device=self.config.device if self.config.device is not None else "auto",
+            subtask_start_token=self.config.subtask_start_token,
+            subtask_end_token=self.config.subtask_end_token,
         )
-        self.state_proj = nn.Linear(
-            self.config.max_state_dim, self.vlm_with_expert.config.text_config.hidden_size
-        )
+        hidden_size = self.vlm_with_expert.config.text_config.hidden_size
+        self.state_proj = nn.Linear(self.config.max_state_dim, hidden_size)
         self.action_in_proj = nn.Linear(self.config.max_action_dim, self.vlm_with_expert.expert_hidden_size)
         self.action_out_proj = nn.Linear(self.vlm_with_expert.expert_hidden_size, self.config.max_action_dim)
 
@@ -517,6 +586,12 @@ class VLAFlowMatching(nn.Module):
         self.action_time_mlp_out = nn.Linear(
             self.vlm_with_expert.expert_hidden_size, self.vlm_with_expert.expert_hidden_size
         )
+
+        # Stage-1 hierarchical auxiliary heads (docs/plan.md §8). The FAST action-token
+        # vocabulary is independent from the VLM's language vocabulary: its own embedding
+        # table and its own linear classification head. Never used at inference.
+        self.fast_token_embed = nn.Embedding(self.config.fast_vocab_size, hidden_size)
+        self.fast_action_head = nn.Linear(hidden_size, self.config.fast_vocab_size)
 
         self.set_requires_grad()
         self.fake_image_token = self.vlm_with_expert.processor.tokenizer.fake_image_token_id
@@ -550,10 +625,29 @@ class VLAFlowMatching(nn.Module):
         return sample_time_beta(bsize, device, alpha=1.5, beta=1.0, scale=0.999, offset=0.001)
 
     def embed_prefix(
-        self, images, img_masks, lang_tokens, lang_masks, state: torch.Tensor = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        images,
+        img_masks,
+        lang_tokens,
+        lang_masks,
+        state: torch.Tensor = None,
+        subtask_tokens: torch.Tensor | None = None,
+        subtask_masks: torch.Tensor | None = None,
+        fast_tokens: torch.Tensor | None = None,
+        fast_masks: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, int]]:
         """Embed images with SigLIP and language tokens with embedding layer to prepare
         for SmolVLM transformer processing.
+
+        `subtask_tokens`/`fast_tokens` (each with a matching bool `*_masks`) optionally append
+        two further autoregressive segments after the state token, each causally masked
+        per-token (every position starts its own attention block, so position i can only attend
+        to image/language/state and segment positions <= i) — see docs/plan.md §3/§8. Returns a
+        `segment_offsets` dict of pre-padding sequence indices used by `compute_stage1_losses`
+        to slice hidden states back out: for each present segment, `f"{name}_anchor"` is the
+        index of the token whose next-token logits predict that segment's first element (the
+        state token, or the previous segment's last token), and `f"{name}_start"` is the index
+        of the segment's own first element.
         """
         embs = []
         pad_masks = []
@@ -628,6 +722,37 @@ class VLAFlowMatching(nn.Module):
 
         # Set attention masks so that image and language inputs do not attend to state or actions
         att_masks += [1] * (states_seq_len)
+
+        # Running (pre-padding) sequence offset, used to slice hidden states back out later.
+        offset = sum(e.shape[1] for e in embs)
+        segment_offsets: dict[str, int] = {}
+
+        if subtask_tokens is not None:
+            subtask_emb = self.vlm_with_expert.embed_language_tokens(subtask_tokens)
+            subtask_emb_dim = subtask_emb.shape[-1]
+            subtask_emb = subtask_emb * math.sqrt(subtask_emb_dim)
+
+            segment_offsets["subtask_anchor"] = offset - 1
+            segment_offsets["subtask_start"] = offset
+            subtask_len = subtask_emb.shape[1]
+            offset += subtask_len
+
+            embs.append(subtask_emb)
+            pad_masks.append(subtask_masks)
+            att_masks += [1] * subtask_len
+
+        if fast_tokens is not None:
+            fast_emb = self.fast_token_embed(fast_tokens)
+
+            segment_offsets["fast_anchor"] = offset - 1
+            segment_offsets["fast_start"] = offset
+            fast_len = fast_emb.shape[1]
+            offset += fast_len
+
+            embs.append(fast_emb)
+            pad_masks.append(fast_masks)
+            att_masks += [1] * fast_len
+
         embs = torch.cat(embs, dim=1)
         pad_masks = torch.cat(pad_masks, dim=1)
         att_masks = torch.tensor(att_masks, dtype=torch.bool, device=pad_masks.device)
@@ -641,7 +766,7 @@ class VLAFlowMatching(nn.Module):
 
         att_masks = att_masks.expand(bsize, -1)
 
-        return embs, pad_masks, att_masks
+        return embs, pad_masks, att_masks, segment_offsets
 
     def embed_suffix(self, noisy_actions, timestep):
         """Embed state, noisy_actions, timestep to prepare for Expert Gemma processing."""
@@ -687,7 +812,17 @@ class VLAFlowMatching(nn.Module):
         return embs, pad_masks, att_masks
 
     def forward(
-        self, images, img_masks, lang_tokens, lang_masks, state, actions, noise=None, time=None
+        self,
+        images,
+        img_masks,
+        lang_tokens,
+        lang_masks,
+        state,
+        actions,
+        noise=None,
+        time=None,
+        subtask_tokens=None,
+        subtask_masks=None,
     ) -> Tensor:
         """Do a full training forward pass and compute the loss (batch_size x num_steps x num_motors)"""
         if noise is None:
@@ -699,8 +834,14 @@ class VLAFlowMatching(nn.Module):
         time_expanded = time[:, None, None]
         x_t = time_expanded * noise + (1 - time_expanded) * actions
         u_t = noise - actions
-        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
-            images, img_masks, lang_tokens, lang_masks, state=state
+        prefix_embs, prefix_pad_masks, prefix_att_masks, _ = self.embed_prefix(
+            images,
+            img_masks,
+            lang_tokens,
+            lang_masks,
+            state=state,
+            subtask_tokens=subtask_tokens,
+            subtask_masks=subtask_masks,
         )
         suffix_embs, suffix_pad_masks, suffix_att_masks = self.embed_suffix(x_t, time)
 
@@ -741,8 +882,20 @@ class VLAFlowMatching(nn.Module):
             actions_shape = (bsize, self.config.chunk_size, self.config.max_action_dim)
             noise = self.sample_noise(actions_shape, device)
 
-        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
-            images, img_masks, lang_tokens, lang_masks, state=state
+        subtask_tokens = None
+        subtask_masks = None
+        if self.config.condition_on_subtask:
+            subtask_tokens = self.generate_subtask(images, img_masks, lang_tokens, lang_masks, state)
+            subtask_masks = torch.ones_like(subtask_tokens, dtype=torch.bool)
+
+        prefix_embs, prefix_pad_masks, prefix_att_masks, _ = self.embed_prefix(
+            images,
+            img_masks,
+            lang_tokens,
+            lang_masks,
+            state=state,
+            subtask_tokens=subtask_tokens,
+            subtask_masks=subtask_masks,
         )
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
@@ -808,3 +961,148 @@ class VLAFlowMatching(nn.Module):
         suffix_out = suffix_out.to(dtype=torch.float32)
         v_t = self.action_out_proj(suffix_out)
         return v_t
+
+    @torch.no_grad()
+    def generate_subtask(
+        self,
+        images,
+        img_masks,
+        lang_tokens,
+        lang_masks,
+        state,
+        max_new_tokens: int | None = None,
+        temperature: float = 0.0,
+    ) -> Tensor:
+        """Greedily (or, if `temperature > 0`, stochastically) decode the subtask text
+        autoregressively through the VLM's own `lm_head`, seeded by `<subtask>` and stopped at
+        `</subtask>` (docs/plan.md §17: "Fast Action Head 在 inference 完全移除" — this path never
+        touches `fast_token_embed`/`fast_action_head`). All samples in the batch run for the same
+        number of steps for simplicity; samples that emit `</subtask>` early are padded with
+        repeated `</subtask>` tokens, which is harmless extra context for the flow-matching step
+        that follows.
+        """
+        max_new_tokens = max_new_tokens or self.config.max_subtask_tokens
+        tokenizer = self.vlm_with_expert.processor.tokenizer
+        start_id = tokenizer.convert_tokens_to_ids(self.config.subtask_start_token)
+        end_id = tokenizer.convert_tokens_to_ids(self.config.subtask_end_token)
+
+        bsize = state.shape[0]
+        device = state.device
+
+        prefix_embs, prefix_pad_masks, prefix_att_masks, _ = self.embed_prefix(
+            images, img_masks, lang_tokens, lang_masks, state=state
+        )
+        prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+        prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
+        _, past_key_values = self.vlm_with_expert.forward(
+            attention_mask=prefix_att_2d_masks,
+            position_ids=prefix_position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, None],
+            use_cache=True,
+        )
+
+        cur_pad_masks = prefix_pad_masks
+        next_token = torch.full((bsize, 1), start_id, dtype=torch.long, device=device)
+        generated = [next_token]
+        finished = torch.zeros(bsize, dtype=torch.bool, device=device)
+
+        for _ in range(max_new_tokens):
+            token_emb = self.vlm_with_expert.embed_language_tokens(next_token)
+            token_emb = token_emb * math.sqrt(token_emb.shape[-1])
+            token_mask = torch.ones(bsize, 1, dtype=torch.bool, device=device)
+
+            step_pad_2d = cur_pad_masks[:, None, :].expand(bsize, 1, cur_pad_masks.shape[1])
+            step_att_2d = torch.ones(bsize, 1, 1, dtype=torch.bool, device=device)
+            full_att_2d = torch.cat([step_pad_2d, step_att_2d], dim=2)
+            position_ids = torch.sum(cur_pad_masks, dim=-1, keepdim=True)
+
+            outputs_embeds, past_key_values = self.vlm_with_expert.forward(
+                attention_mask=full_att_2d,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=[token_emb, None],
+                use_cache=True,
+            )
+            hidden = outputs_embeds[0].to(dtype=torch.float32)
+            logits = self.vlm_with_expert.vlm.lm_head(hidden[:, -1, :])
+            if temperature > 0:
+                probs = torch.softmax(logits / temperature, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = logits.argmax(dim=-1, keepdim=True)
+            next_token = torch.where(finished[:, None], torch.full_like(next_token, end_id), next_token)
+
+            generated.append(next_token)
+            finished = finished | (next_token.squeeze(-1) == end_id)
+            cur_pad_masks = torch.cat([cur_pad_masks, token_mask], dim=1)
+            if finished.all():
+                break
+
+        return torch.cat(generated, dim=1)
+
+    def compute_stage1_losses(
+        self,
+        images,
+        img_masks,
+        lang_tokens,
+        lang_masks,
+        state,
+        subtask_tokens=None,
+        subtask_masks=None,
+        fast_tokens=None,
+        fast_masks=None,
+    ) -> tuple[Tensor, Tensor]:
+        """Stage-1 auxiliary losses (docs/plan.md §9-12): subtask text CE and FAST action-token
+        CE, computed from one prefix-only forward pass (the Action Expert is never invoked).
+        Returns `(subtask_loss, fast_loss)`, each a `0.0` tensor when the corresponding inputs
+        are absent so callers can always sum unconditionally.
+        """
+        device = state.device
+        prefix_embs, prefix_pad_masks, prefix_att_masks, segment_offsets = self.embed_prefix(
+            images,
+            img_masks,
+            lang_tokens,
+            lang_masks,
+            state=state,
+            subtask_tokens=subtask_tokens,
+            subtask_masks=subtask_masks,
+            fast_tokens=fast_tokens,
+            fast_masks=fast_masks,
+        )
+        att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+        position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
+        (prefix_out, _), _ = self.vlm_with_expert.forward(
+            attention_mask=att_2d_masks,
+            position_ids=position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, None],
+            use_cache=False,
+        )
+        prefix_out = prefix_out.to(dtype=torch.float32)
+
+        subtask_loss = torch.zeros((), device=device, dtype=torch.float32)
+        if subtask_tokens is not None:
+            anchor = segment_offsets["subtask_anchor"]
+            length = subtask_tokens.shape[1]
+            hidden = prefix_out[:, anchor : anchor + length, :]
+            logits = self.vlm_with_expert.vlm.lm_head(hidden)
+            token_loss = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]), subtask_tokens.reshape(-1), reduction="none"
+            ).reshape(subtask_tokens.shape)
+            mask = subtask_masks.to(dtype=token_loss.dtype)
+            subtask_loss = (token_loss * mask).sum() / mask.sum().clamp_min(1)
+
+        fast_loss = torch.zeros((), device=device, dtype=torch.float32)
+        if fast_tokens is not None:
+            anchor = segment_offsets["fast_anchor"]
+            length = fast_tokens.shape[1]
+            hidden = prefix_out[:, anchor : anchor + length, :]
+            logits = self.fast_action_head(hidden)
+            token_loss = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]), fast_tokens.reshape(-1), reduction="none"
+            ).reshape(fast_tokens.shape)
+            mask = fast_masks.to(dtype=token_loss.dtype)
+            fast_loss = (token_loss * mask).sum() / mask.sum().clamp_min(1)
+
+        return subtask_loss, fast_loss

@@ -136,7 +136,7 @@ def test_resolve_wandb_key_netrc_without_wandb_entry(monkeypatch):
 
 def test_build_repo_id_sanitizes_and_timestamps():
     now = dt.datetime(2026, 6, 19, 10, 22, 3)
-    assert build_repo_id("alice", "act", now) == "alice/act_2026-06-19_10-22-03"
+    assert build_repo_id("alice", "smolvla", now) == "alice/smolvla_2026-06-19_10-22-03"
     # Runs of illegal characters collapse to a single dash; edges are trimmed.
     assert build_repo_id("alice", "my cool/run!!", now) == "alice/my-cool-run_2026-06-19_10-22-03"
     # A name with nothing usable falls back to "train".
@@ -169,7 +169,7 @@ def test_pod_forwarded_args_drops_host_only_flags():
 def _minimal_cfg():
     return draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act", "--job.target", "a10g-small"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla", "--job.target", "a10g-small"],
     )
 
 
@@ -184,7 +184,7 @@ def test_validate_requires_repo_id_for_local_push():
     """Local runs that push to the Hub still need an explicit repo_id."""
     cfg = draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla"],
     )
     with pytest.raises(ValueError, match="repo_id"):
         cfg.validate()
@@ -216,7 +216,7 @@ def test_build_remote_config_includes_checkpoint_flag_when_enabled(tmp_path):
             "--dataset.repo_id",
             "u/d",
             "--policy.type",
-            "act",
+            "smolvla",
             "--job.target",
             "a10g-small",
             "--save_checkpoint_to_hub",
@@ -254,7 +254,7 @@ def test_submit_requires_login(monkeypatch):
     monkeypatch.setattr("lerobot.jobs.hf.get_token", lambda: None)
     cfg = draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act", "--job.target", "a10g-small"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla", "--job.target", "a10g-small"],
     )
     with pytest.raises(RuntimeError, match="hf auth login"):
         submit_to_hf(cfg)
@@ -304,7 +304,7 @@ def test_submit_passes_validation_and_submits(monkeypatch):
             "--dataset.repo_id",
             "u/d",
             "--policy.type",
-            "act",
+            "smolvla",
             "--job.target",
             "a10g-small",
             "--job.detach",
@@ -383,7 +383,7 @@ def test_submit_returns_when_job_completes(monkeypatch):
 
     cfg = draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act", "--job.target", "a10g-small"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla", "--job.target", "a10g-small"],
     )
     # Runs in the pytest main thread (signal handler install requires it); the
     # @timeout marker fails the test instead of hanging if it regresses.
@@ -426,7 +426,7 @@ def test_submit_returns_on_model_pushed_marker(monkeypatch):
             "--dataset.repo_id",
             "u/d",
             "--policy.type",
-            "act",
+            "smolvla",
             "--policy.repo_id",
             "alice/myrun",
             "--job.target",
@@ -458,7 +458,7 @@ def test_submit_raises_when_wandb_enabled_without_key(monkeypatch):
             "--dataset.repo_id",
             "u/d",
             "--policy.type",
-            "act",
+            "smolvla",
             "--job.target",
             "a10g-small",
             "--wandb.enable",
@@ -501,7 +501,7 @@ def test_submit_raises_when_job_ends_in_error(monkeypatch):
 
     cfg = draccus.parse(
         TrainPipelineConfig,
-        args=["--dataset.repo_id", "u/d", "--policy.type", "act", "--job.target", "a10g-small"],
+        args=["--dataset.repo_id", "u/d", "--policy.type", "smolvla", "--job.target", "a10g-small"],
     )
     with pytest.raises(RuntimeError, match=r"stage=ERROR \(Job timeout\)"):
         submit_to_hf(cfg)

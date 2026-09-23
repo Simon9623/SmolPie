@@ -47,7 +47,6 @@ from tqdm import tqdm
 
 from lerobot.common.train_utils import (
     get_step_checkpoint_dir,
-    get_step_identifier,
     load_training_metadata,
     publish_trained_model,
     push_checkpoint_to_hub,
@@ -69,13 +68,11 @@ from lerobot.distributed import (
     make_accelerator,
     set_fsdp_wrap_modules,
 )
-from lerobot.envs import close_envs, make_env, make_env_pre_post_processors
 from lerobot.jobs import submit_to_hf
 from lerobot.optim.factory import make_optimizer_and_scheduler
 from lerobot.policies import PreTrainedPolicy, make_policy, make_pre_post_processors
 from lerobot.policies.factory import ProcessorConfigKwargs
 from lerobot.processor.rename_processor import rename_batch_keys, rename_stats
-from lerobot.rewards import make_reward_pre_post_processors
 from lerobot.utils.collate import lerobot_collate_fn
 from lerobot.utils.constants import PRETRAINED_MODEL_DIR, TRAINING_STATE_DIR
 from lerobot.utils.import_utils import _peft_available, register_third_party_plugins, require_package
@@ -94,8 +91,6 @@ if TYPE_CHECKING or _peft_available:
 else:
     PeftModel = None
 
-from .lerobot_eval import eval_policy_all
-
 EMA_STATE_FILENAME = "ema_state.pt"
 
 
@@ -109,20 +104,6 @@ def _ema_weights(ema: Any, policy: PreTrainedPolicy) -> Iterator[None]:
         yield
     finally:
         ema.restore(params)
-
-
-@contextmanager
-def _make_eval_envs(cfg: TrainPipelineConfig) -> Iterator[dict[str, dict[int, Any]]]:
-    """Create evaluation environments for one run and always dispose of them."""
-    envs = make_env(
-        cfg.env,
-        n_envs=cfg.eval.batch_size,
-        use_async_envs=cfg.eval.use_async_envs,
-    )
-    try:
-        yield envs
-    finally:
-        close_envs(envs)
 
 
 def _preprocess_dataset_batch(
@@ -544,6 +525,8 @@ def train(cfg: TrainPipelineConfig):
         processor_kwargs["postprocessor_overrides"] = postprocessor_overrides
 
     if cfg.is_reward_model_training:
+        from lerobot.rewards import make_reward_pre_post_processors
+
         preprocessor, postprocessor = make_reward_pre_post_processors(
             cfg.reward_model,
             **processor_kwargs,
@@ -611,12 +594,6 @@ def train(cfg: TrainPipelineConfig):
         num_learnable_params = sum(p.numel() for p in policy.parameters() if p.requires_grad)
         num_total_params = sum(p.numel() for p in policy.parameters())
         logging.info(colored("Output dir:", "yellow", attrs=["bold"]) + f" {cfg.output_dir}")
-        if cfg.env is not None:
-            logging.info(f"{cfg.env.task=}")
-            logging.info("Creating environment processors")
-            env_preprocessor, env_postprocessor = make_env_pre_post_processors(
-                env_cfg=cfg.env, policy_cfg=cfg.policy
-            )
         logging.info(f"{cfg.steps=} ({format_big_number(cfg.steps)})")
         logging.info(f"{dataset.num_frames=} ({format_big_number(dataset.num_frames)})")
         logging.info(f"{dataset.num_episodes=}")
@@ -766,7 +743,6 @@ def train(cfg: TrainPipelineConfig):
         train_tracker.step()
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0
         is_saving_step = should_save_checkpoint(step, cfg.save_freq, cfg.steps)
-        is_env_eval_step = cfg.env_eval_freq > 0 and step % cfg.env_eval_freq == 0
         is_eval_step = cfg.eval_steps > 0 and eval_dataloader is not None and step % cfg.eval_steps == 0
 
         if is_log_step:
@@ -851,63 +827,6 @@ def train(cfg: TrainPipelineConfig):
                     )
                 if wandb_logger:
                     wandb_logger.log_policy(checkpoint_dir)
-            accelerator.wait_for_everyone()
-
-        if cfg.env and is_env_eval_step:
-            if is_main_process():
-                step_id = get_step_identifier(step, cfg.steps)
-                logging.info(f"Eval policy at step {step}")
-                eval_policy_model = accelerator.unwrap_model(policy)
-                # Evaluate the EMA weights when enabled: the swap happens only on the main
-                # process (the other ranks wait at the barrier below) and is exactly undone
-                # afterwards, so the live weights stay in sync across ranks.
-                use_ema_for_eval = ema is not None and cfg.ema.use_for_eval
-                if use_ema_for_eval:
-                    logging.info("Evaluating the EMA weights")
-                weights_cm = _ema_weights(ema, eval_policy_model) if use_ema_for_eval else nullcontext()
-                with weights_cm, _make_eval_envs(cfg) as eval_env, torch.no_grad(), accelerator.autocast():
-                    eval_info = eval_policy_all(
-                        envs=eval_env,  # dict[suite][task_id] -> vec_env
-                        policy=eval_policy_model,
-                        env_preprocessor=env_preprocessor,
-                        env_postprocessor=env_postprocessor,
-                        preprocessor=preprocessor,
-                        postprocessor=postprocessor,
-                        n_episodes=cfg.eval.n_episodes,
-                        videos_dir=cfg.output_dir / "eval" / f"videos_step_{step_id}",
-                        max_episodes_rendered=4,
-                        start_seed=cfg.seed,
-                        max_parallel_tasks=cfg.env.max_parallel_tasks,
-                    )
-                # overall metrics (suite-agnostic)
-                aggregated = eval_info["overall"]
-
-                # optional: per-suite logging
-                for suite, suite_info in eval_info.items():
-                    logging.info("Suite %s aggregated: %s", suite, suite_info)
-
-                # meters/tracker
-                eval_metrics = {
-                    "avg_sum_reward": AverageMeter("∑rwrd", ":.3f"),
-                    "pc_success": AverageMeter("success", ":.1f"),
-                    "eval_s": AverageMeter("eval_s", ":.3f"),
-                }
-                eval_tracker = MetricsTracker(
-                    cfg.batch_size,
-                    dataset.num_frames,
-                    dataset.num_episodes,
-                    eval_metrics,
-                    initial_step=step,
-                    dp_world_size=parallel_dims.dp_world_size,
-                )
-                eval_tracker.eval_s = aggregated.pop("eval_s")
-                eval_tracker.avg_sum_reward = aggregated.pop("avg_sum_reward")
-                eval_tracker.pc_success = aggregated.pop("pc_success")
-                if wandb_logger:
-                    wandb_log_dict = {**eval_tracker.to_dict(), **eval_info}
-                    wandb_logger.log_dict(wandb_log_dict, step, mode="eval")
-                    wandb_logger.log_video(eval_info["overall"]["video_paths"][0], step, mode="eval")
-
             accelerator.wait_for_everyone()
 
     if is_main_process():

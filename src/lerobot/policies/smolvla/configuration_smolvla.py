@@ -106,6 +106,35 @@ class SmolVLAConfig(PreTrainedConfig):
     compile_model: bool = False  # Whether to use torch.compile for model optimization
     compile_mode: str = "max-autotune"  # Torch compile mode
 
+    # --- Hierarchical subtask + FAST-token auxiliary heads (see docs/plan.md) ---
+    # Special tokens delimiting the autoregressively-generated subtask text. Added to the VLM's
+    # own tokenizer/embedding table (see `add_subtask_special_tokens`); subtask shares the
+    # language vocabulary, it is not a separate vocab.
+    subtask_start_token: str = "<subtask>"
+    subtask_end_token: str = "</subtask>"
+    max_subtask_tokens: int = 32
+
+    # Independent (non-language) FAST action-token vocabulary used only as a Stage-1 auxiliary
+    # signal to make the VLM backbone action-aware. Never used at inference.
+    # NOTE: 2048 matches the actual vocab_size of the pretrained "physical-intelligence/fast"
+    # tokenizer (see its processor_config.json). If you point `fast_tokenizer_name` at a
+    # different (e.g. self-trained) FAST tokenizer, update `fast_vocab_size` to match its vocab
+    # size, or FAST target ids may fall outside the classification head's output range.
+    fast_tokenizer_name: str = "physical-intelligence/fast"
+    fast_vocab_size: int = 2048
+    max_fast_tokens: int = 64
+
+    # Stage loss weights. Defaults reproduce the pre-hierarchical behavior (flow matching only).
+    subtask_loss_weight: float = 0.0
+    fast_token_loss_weight: float = 0.0
+    flow_matching_loss_weight: float = 1.0
+
+    # Stage 2: condition the flow-matching Action Expert on the (ground-truth during training,
+    # autoregressively generated during inference) subtask text. Independent from
+    # `subtask_loss_weight`, which only controls the Stage-1 auxiliary CE loss. Saved in the
+    # checkpoint config so inference knows whether to run subtask generation first.
+    condition_on_subtask: bool = False
+
     def __post_init__(self):
         super().__post_init__()
 
@@ -118,6 +147,15 @@ class SmolVLAConfig(PreTrainedConfig):
         if self.use_delta_joint_actions_aloha:
             raise NotImplementedError(
                 "`use_delta_joint_actions_aloha` is used by smolvla for aloha real models. It is not ported yet in LeRobot."
+            )
+        if (
+            self.subtask_loss_weight <= 0
+            and self.fast_token_loss_weight <= 0
+            and self.flow_matching_loss_weight <= 0
+        ):
+            raise ValueError(
+                "At least one of `subtask_loss_weight`, `fast_token_loss_weight`, "
+                "`flow_matching_loss_weight` must be > 0."
             )
 
     def validate_features(self) -> None:

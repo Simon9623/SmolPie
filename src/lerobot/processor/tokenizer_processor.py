@@ -36,6 +36,8 @@ from lerobot.utils.constants import (
     ACTION_CODE_TOKEN_MASK,
     ACTION_TOKEN_MASK,
     ACTION_TOKENS,
+    FAST_ACTION_TOKEN_MASK,
+    FAST_ACTION_TOKENS,
     OBS_LANGUAGE_ATTENTION_MASK,
     OBS_LANGUAGE_SUBTASK_ATTENTION_MASK,
     OBS_LANGUAGE_SUBTASK_TOKENS,
@@ -43,7 +45,7 @@ from lerobot.utils.constants import (
 )
 from lerobot.utils.import_utils import _transformers_available
 
-from .pipeline import ActionProcessorStep, ObservationProcessorStep, ProcessorStepRegistry
+from .pipeline import ActionProcessorStep, ObservationProcessorStep, ProcessorStep, ProcessorStepRegistry
 
 # Conditional import for type checking and lazy loading
 if TYPE_CHECKING or _transformers_available:
@@ -51,6 +53,59 @@ if TYPE_CHECKING or _transformers_available:
 else:
     AutoProcessor = None
     AutoTokenizer = None
+
+
+@dataclass
+@ProcessorStepRegistry.register(name="subtask_boundary_processor")
+class SubtaskBoundaryProcessorStep(ProcessorStep):
+    """
+    Wraps `complementary_data["subtask"]` with boundary special-token literals (e.g.
+    `"<subtask>pick up the red cube</subtask>"`) before tokenization.
+
+    Wrapping at the string level (rather than splicing token ids in after padding) guarantees
+    the boundary tokens land right next to the real content regardless of batch padding, since
+    the tokenizer pads *after* tokenizing the already-wrapped string. Requires `<subtask>`/
+    `</subtask>` to already be registered as special tokens on the tokenizer used downstream by
+    `TokenizerProcessorStep` (see `smolvlm_with_expert.add_subtask_special_tokens`), otherwise
+    they will be split into ordinary subword pieces instead of a single token id each.
+    """
+
+    subtask_start_token: str = "<subtask>"
+    subtask_end_token: str = "</subtask>"
+
+    def __call__(self, transition: EnvTransition) -> EnvTransition:
+        new_transition = transition.copy()
+
+        complementary_data = new_transition.get(TransitionKey.COMPLEMENTARY_DATA)
+        if not complementary_data:
+            return new_transition
+
+        subtask = complementary_data.get("subtask")
+        if subtask is None:
+            return new_transition
+
+        def _wrap(text: str) -> str:
+            return f"{self.subtask_start_token}{text}{self.subtask_end_token}"
+
+        complementary_data = dict(complementary_data)
+        if isinstance(subtask, str):
+            complementary_data["subtask"] = _wrap(subtask)
+        elif isinstance(subtask, list | tuple) and all(isinstance(t, str) for t in subtask):
+            complementary_data["subtask"] = [_wrap(t) for t in subtask]
+        new_transition[TransitionKey.COMPLEMENTARY_DATA] = complementary_data
+
+        return new_transition
+
+    def get_config(self) -> dict[str, Any]:
+        return {
+            "subtask_start_token": self.subtask_start_token,
+            "subtask_end_token": self.subtask_end_token,
+        }
+
+    def transform_features(
+        self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
+    ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
+        return features
 
 
 @dataclass
@@ -615,4 +670,155 @@ class ActionTokenizerProcessorStep(ActionProcessorStep):
         Returns:
             The updated dictionary of policy features.
         """
+        return features
+
+
+@dataclass
+@ProcessorStepRegistry.register(name="fast_action_target_processor")
+class FastActionTargetProcessorStep(ActionProcessorStep):
+    """
+    Produces raw FAST action-token classification targets for an independent auxiliary head.
+
+    Unlike `ActionTokenizerProcessorStep`, this step does NOT wrap the tokens in a text prompt
+    or remap them into a language-model vocabulary: the FAST codebook here is a small,
+    independent vocabulary (see `SmolVLAConfig.fast_vocab_size`), decoded by its own head and
+    never merged into the VLM's language tokenizer.
+
+    Attributes:
+        action_tokenizer_name: HF Hub name of the pretrained FAST tokenizer/processor.
+        max_fast_tokens: Sequence length to pad/truncate the FAST token sequence to.
+        trust_remote_code: Whether to trust remote code when loading the tokenizer.
+        allow_truncation: Whether truncating an overly long token sequence is allowed.
+    """
+
+    action_tokenizer_name: str = "physical-intelligence/fast"
+    max_fast_tokens: int = 64
+    trust_remote_code: bool = True
+    allow_truncation: bool = True
+
+    action_tokenizer: Any = field(default=None, init=False, repr=False)
+
+    def __post_init__(self):
+        if not _transformers_available:
+            raise ImportError(
+                "The 'transformers' library is not installed. "
+                "Please install it with `pip install 'lerobot[transformers-dep]'` to use "
+                "FastActionTargetProcessorStep."
+            )
+        if AutoProcessor is None:
+            raise ImportError("AutoProcessor is not available")
+        self.action_tokenizer = AutoProcessor.from_pretrained(
+            self.action_tokenizer_name, trust_remote_code=self.trust_remote_code
+        )
+
+    def __call__(self, transition: EnvTransition) -> EnvTransition:
+        new_transition = transition.copy()
+
+        action = new_transition.get(TransitionKey.ACTION)
+        if action is None:
+            # During inference no ground-truth action is available; the FAST head is never
+            # used at inference time anyway (see docs/plan.md §17).
+            return new_transition
+
+        tokens, mask = self._tokenize_action(action)
+
+        complementary_data = new_transition.get(TransitionKey.COMPLEMENTARY_DATA, {})
+        if complementary_data is None:
+            complementary_data = {}
+        complementary_data[FAST_ACTION_TOKENS] = tokens
+        complementary_data[FAST_ACTION_TOKEN_MASK] = mask
+        new_transition[TransitionKey.COMPLEMENTARY_DATA] = complementary_data
+        return new_transition
+
+    def _tokenize_action(self, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            action: Ground-truth action chunk, shape (B, H, action_dim) or (H, action_dim).
+
+        Returns:
+            (tokens, mask): tokens of shape (B, max_fast_tokens) with raw FAST codebook ids
+            (no prompt wrapping, no vocab remap), and a boolean padding mask of the same shape.
+        """
+        device = action.device if isinstance(action, torch.Tensor) else None
+
+        single_sample = action.dim() == 2
+        if single_sample:
+            action = action.unsqueeze(0)
+
+        batch_size = action.shape[0]
+        tokens_list = []
+        masks_list = []
+
+        for i in range(batch_size):
+            action_cpu = action[i : i + 1].cpu()
+            tokens = self.action_tokenizer(action_cpu)
+
+            if isinstance(tokens, list) or not isinstance(tokens, torch.Tensor):
+                tokens = torch.tensor(tokens, dtype=torch.long, device=action.device)
+            else:
+                tokens = tokens.to(device=action.device)
+
+            if tokens.dim() > 1:
+                tokens = tokens.flatten()
+
+            if len(tokens) > self.max_fast_tokens:
+                if not self.allow_truncation:
+                    raise ValueError(
+                        f"FAST action sequence has {len(tokens)} tokens, exceeding "
+                        f"max_fast_tokens={self.max_fast_tokens}."
+                    )
+                logging.warning(
+                    f"FAST token length ({len(tokens)}) exceeds max length ({self.max_fast_tokens}), "
+                    "truncating. Consider increasing `max_fast_tokens` if this happens frequently."
+                )
+                tokens = tokens[: self.max_fast_tokens]
+                mask = torch.ones(self.max_fast_tokens, dtype=torch.bool, device=action.device)
+            else:
+                pad_len = self.max_fast_tokens - len(tokens)
+                mask = torch.cat(
+                    [
+                        torch.ones(len(tokens), dtype=torch.bool, device=action.device),
+                        torch.zeros(pad_len, dtype=torch.bool, device=action.device),
+                    ]
+                )
+                tokens = torch.nn.functional.pad(tokens, (0, pad_len), value=0)
+
+            tokens_list.append(tokens)
+            masks_list.append(mask)
+
+        tokens_batch = torch.stack(tokens_list, dim=0)
+        masks_batch = torch.stack(masks_list, dim=0)
+
+        if device is not None:
+            tokens_batch = tokens_batch.to(device)
+            masks_batch = masks_batch.to(device)
+
+        return tokens_batch, masks_batch
+
+    def action(self, action: torch.Tensor) -> torch.Tensor:
+        """Not used since `__call__` is overridden. Required by the `ActionProcessorStep` ABC."""
+        tokens, _ = self._tokenize_action(action)
+        return tokens
+
+    def get_config(self) -> dict[str, Any]:
+        return {
+            "action_tokenizer_name": self.action_tokenizer_name,
+            "max_fast_tokens": self.max_fast_tokens,
+            "trust_remote_code": self.trust_remote_code,
+            "allow_truncation": self.allow_truncation,
+        }
+
+    def save_artifacts(self, save_directory: Path) -> dict[str, str]:
+        artifact_path = Path("fast_action_tokenizer")
+        save_pretrained = getattr(self.action_tokenizer, "save_pretrained", None)
+        if save_pretrained is None:
+            raise TypeError(
+                "FAST action tokenizer must implement save_pretrained() to save a portable pipeline."
+            )
+        save_pretrained(save_directory / artifact_path)
+        return {"action_tokenizer_name": artifact_path.as_posix()}
+
+    def transform_features(
+        self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
+    ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
         return features

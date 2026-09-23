@@ -13,5 +13,5 @@
 # limitations under the License.
 
 # Importing concrete policy configs registers their draccus `--policy.type`
-# choices (e.g. "act") so tests can parse them.
-from lerobot.policies.act.configuration_act import ACTConfig  # noqa: F401
+# choices (e.g. "smolvla") so tests can parse them.
+from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig  # noqa: F401

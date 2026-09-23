@@ -71,6 +71,19 @@ def get_intermediate_size(hidden_dim, ffn_dim_multiplier=4, multiple_of=256):
     return hidden_dim
 
 
+def add_subtask_special_tokens(tokenizer, subtask_start_token: str, subtask_end_token: str) -> int:
+    """Register the `<subtask>`/`</subtask>` special tokens on a SmolVLM tokenizer.
+
+    Must be called identically (same base tokenizer, same token strings, same order) on every
+    tokenizer instance that will be used with a given model, so that token ids stay in sync
+    between the model's (resized) embedding table and any independently-constructed tokenizer
+    used by the data-processing pipeline.
+    """
+    return tokenizer.add_special_tokens(
+        {"additional_special_tokens": [subtask_start_token, subtask_end_token]}
+    )
+
+
 class SmolVLMWithExpertModel(nn.Module):
     def __init__(
         self,
@@ -84,6 +97,8 @@ class SmolVLMWithExpertModel(nn.Module):
         self_attn_every_n_layers: int = -1,
         expert_width_multiplier: float = 0.5,
         device: str = "auto",
+        subtask_start_token: str | None = None,
+        subtask_end_token: str | None = None,
     ):
         super().__init__()
         require_package("transformers", extra="smolvla")
@@ -99,6 +114,12 @@ class SmolVLMWithExpertModel(nn.Module):
             config = AutoConfig.from_pretrained(model_id)
             self.vlm = SmolVLMForConditionalGeneration(config=config)
         self.processor = AutoProcessor.from_pretrained(model_id)
+        if subtask_start_token is not None and subtask_end_token is not None:
+            num_added = add_subtask_special_tokens(
+                self.processor.tokenizer, subtask_start_token, subtask_end_token
+            )
+            if num_added > 0:
+                self.vlm.resize_token_embeddings(len(self.processor.tokenizer))
         if num_vlm_layers > 0:
             print(f"Reducing the number of VLM layers to {num_vlm_layers} ...")
             self.get_vlm_model().text_model.layers = self.get_vlm_model().text_model.layers[:num_vlm_layers]

@@ -36,6 +36,12 @@ ACTION_PREFIX = ACTION + "."
 ACTION_TOKENS = ACTION + ".tokens"
 ACTION_TOKEN_MASK = ACTION + ".token_mask"
 ACTION_CODE_TOKEN_MASK = ACTION + ".code_token_mask"
+
+# Raw FAST action-token classification targets for the independent Stage-1 auxiliary head
+# (see docs/plan.md §8). Distinct from ACTION_TOKENS above, which are PaliGemma-vocab-remapped
+# tokens meant to be merged into a shared LM vocabulary.
+FAST_ACTION_TOKENS = ACTION + ".fast_tokens"
+FAST_ACTION_TOKEN_MASK = ACTION + ".fast_token_mask"
 REWARD = "next.reward"
 TRUNCATED = "next.truncated"
 DONE = "next.done"

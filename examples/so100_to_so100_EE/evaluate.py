@@ -24,7 +24,7 @@ from lerobot.datasets import LeRobotDataset, aggregate_pipeline_dataset_features
 from lerobot.lerobot_types import RobotAction, RobotObservation
 from lerobot.model.kinematics import RobotKinematics
 from lerobot.policies import make_pre_post_processors
-from lerobot.policies.act import ACTPolicy
+from lerobot.policies.smolvla import SmolVLAPolicy
 from lerobot.policies.utils import make_robot_action
 from lerobot.processor import (
     RobotProcessorPipeline,
@@ -70,7 +70,7 @@ def main():
     robot = SO100Follower(robot_config)
 
     # Create policy
-    policy = ACTPolicy.from_pretrained(HF_MODEL_ID)
+    policy = SmolVLAPolicy.from_pretrained(HF_MODEL_ID)
 
     # NOTE: It is highly recommended to use the urdf in the SO-ARM100 repo: https://github.com/TheRobotStudio/SO-ARM100/blob/main/Simulation/SO101/so101_new_calib.urdf
     kinematics_solver = RobotKinematics(

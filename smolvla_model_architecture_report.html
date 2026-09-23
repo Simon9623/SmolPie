@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmolVLA 模型架構深度解析報告 | Hugging Face LeRobot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --bg-card: rgba(31, 41, 55, 0.7);
+            --border-color: rgba(75, 85, 99, 0.4);
+            --border-highlight: rgba(99, 102, 241, 0.5);
+            
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            
+            --accent-primary: #6366f1;
+            --accent-secondary: #8b5cf6;
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            
+            --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+            --gradient-card: linear-gradient(180deg, rgba(31, 41, 55, 0.7) 0%, rgba(17, 24, 39, 0.8) 100%);
+            --gradient-glow: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+            
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+            
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.08) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        code, pre {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Top Header */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(11, 15, 25, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .logo-badge {
+            width: 38px;
+            height: 38px;
+            background: var(--gradient-primary);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.1rem;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .brand-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .brand-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .header-nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: #ffffff;
+            background: rgba(99, 102, 241, 0.15);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-action {
+            background: rgba(99, 102, 241, 0.1);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            padding: 6px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-action:hover {
+            background: var(--accent-primary);
+            color: #fff;
+            box-shadow: var(--shadow-glow);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 4rem 2rem 2.5rem;
+            max-width: 1300px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            background: rgba(99, 102, 241, 0.12);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 9999px;
+            color: #a5b4fc;
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .hero-title {
+            font-size: 3.2rem;
+            font-weight: 900;
+            letter-spacing: -0.03em;
+            line-height: 1.2;
+            margin-bottom: 1.2rem;
+            background: linear-gradient(135deg, #ffffff 30%, #a5b4fc 70%, #818cf8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-desc {
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            max-width: 860px;
+            margin: 0 auto 2.5rem;
+            font-weight: 400;
+        }
+
+        /* Stat Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.2rem;
+            max-width: 1200px;
+            margin: 0 auto 3rem;
+        }
+
+        .stat-card {
+            background: var(--gradient-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1.5rem 1.2rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            border-color: var(--border-highlight);
+        }
+
+        .stat-val {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #ffffff;
+            line-height: 1.1;
+            margin-bottom: 0.3rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-val.primary { color: #818cf8; }
+        .stat-val.cyan { color: var(--accent-cyan); }
+        .stat-val.emerald { color: var(--accent-emerald); }
+        .stat-val.amber { color: var(--accent-amber); }
+
+        .stat-label {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Main Container & Layout */
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 0 2rem 5rem;
+        }
+
+        /* Tab Navigation */
+        .tab-bar-wrapper {
+            position: sticky;
+            top: 71px;
+            z-index: 90;
+            background: rgba(11, 15, 25, 0.92);
+            backdrop-filter: blur(10px);
+            padding: 0.8rem 0;
+            margin-bottom: 2.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab-bar {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: none;
+        }
+
+        .tab-bar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .tab-btn {
+            background: rgba(31, 41, 55, 0.6);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 10px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 0.88rem;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn:hover {
+            color: #fff;
+            background: rgba(99, 102, 241, 0.15);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .tab-btn.active {
+            color: #fff;
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Tab Content Panels */
+        .tab-panel {
+            display: none;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Content Card & Sections */
+        .section-card {
+            background: var(--gradient-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-md);
+            position: relative;
+        }
+
+        .section-header {
+            margin-bottom: 1.8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .section-title-group h2 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section-title-group p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 4px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge-primary { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); }
+        .badge-cyan { background: rgba(6, 182, 212, 0.2); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.4); }
+        .badge-emerald { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
+        .badge-amber { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+        /* Typography & Content Layout */
+        p {
+            margin-bottom: 1rem;
+            color: #d1d5db;
+        }
+
+        p.lead {
+            font-size: 1.08rem;
+            color: #e5e7eb;
+            font-weight: 400;
+            line-height: 1.7;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin: 1.8rem 0 0.8rem;
+            color: #f3f4f6;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        h4 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin: 1.4rem 0 0.5rem;
+            color: #e5e7eb;
+        }
+
+        ul, ol {
+            margin: 0.8rem 0 1.2rem 1.8rem;
+            color: #d1d5db;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        strong {
+            color: #ffffff;
+        }
+
+        /* SVG Architecture Diagrams */
+        .diagram-wrapper {
+            background: #0d1322;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 2rem 1rem;
+            margin: 2rem 0;
+            overflow-x: auto;
+            text-align: center;
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .diagram-caption {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+            text-align: center;
+            font-style: italic;
+        }
+
+        /* Two column grid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 1.8rem;
+            margin: 1.5rem 0;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .sub-card {
+            background: rgba(17, 24, 39, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1.6rem;
+            transition: border-color 0.2s;
+        }
+
+        .sub-card:hover {
+            border-color: var(--border-highlight);
+        }
+
+        .sub-card h3 {
+            margin-top: 0;
+        }
+
+        /* Code Blocks */
+        .code-container {
+            background: #090d16;
+            border: 1px solid rgba(75, 85, 99, 0.5);
+            border-radius: var(--radius-md);
+            margin: 1.2rem 0;
+            overflow: hidden;
+        }
+
+        .code-header {
+            background: #111827;
+            padding: 8px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(75, 85, 99, 0.4);
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+        }
+
+        .code-lang {
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #818cf8;
+        }
+
+        pre code {
+            display: block;
+            padding: 1.2rem 1.4rem;
+            overflow-x: auto;
+            font-size: 0.88rem;
+            line-height: 1.6;
+            color: #e2e8f0;
+        }
+
+        .keyword { color: #f472b6; font-weight: 600; }
+        .function { color: #38bdf8; }
+        .string { color: #a7f3d0; }
+        .number { color: #fbbf24; }
+        .comment { color: #64748b; font-style: italic; }
+        .class-name { color: #c084fc; font-weight: 600; }
+
+        /* Tables */
+        .data-table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+        }
+
+        table.data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+            text-align: left;
+        }
+
+        table.data-table th {
+            background: #111827;
+            padding: 12px 16px;
+            color: #f3f4f6;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        table.data-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(75, 85, 99, 0.25);
+            color: #d1d5db;
+        }
+
+        table.data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        table.data-table tr:hover td {
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+        }
+
+        /* Callout Box */
+        .callout {
+            border-left: 4px solid var(--accent-primary);
+            background: rgba(99, 102, 241, 0.08);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            padding: 1.2rem 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .callout.info {
+            border-color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.08);
+        }
+
+        .callout.success {
+            border-color: var(--accent-emerald);
+            background: rgba(16, 185, 129, 0.08);
+        }
+
+        .callout.warning {
+            border-color: var(--accent-amber);
+            background: rgba(245, 158, 11, 0.08);
+        }
+
+        .callout-title {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #ffffff;
+            margin-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Interactive Playground Area */
+        .interactive-box {
+            background: #0d1424;
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--radius-lg);
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .control-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 200px;
+        }
+
+        .control-group label {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .slider-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            accent-color: var(--accent-primary);
+            height: 6px;
+            background: #1f2937;
+            border-radius: 3px;
+        }
+
+        .control-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: #818cf8;
+            min-width: 45px;
+        }
+
+        .sim-canvas-container {
+            background: #080b12;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            height: 260px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border-color);
+            background: #080c14;
+            padding: 3rem 2rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        footer a {
+            color: #818cf8;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero-title { font-size: 2.2rem; }
+            .grid-2 { grid-template-columns: 1fr; }
+            .section-card { padding: 1.5rem; }
+            header { padding: 1rem; }
+            .header-nav { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header>
+        <a href="#" class="header-brand">
+            <div class="logo-badge">SV</div>
+            <div>
+                <div class="brand-title">SmolVLA Technical Report</div>
+                <div class="brand-subtitle">Hugging Face LeRobot Team &middot; arXiv:2506.01844</div>
+            </div>
+        </a>
+
+        <nav class="header-nav">
+            <a class="nav-link" onclick="switchTab('overview')">總覽</a>
+            <a class="nav-link" onclick="switchTab('architecture')">雙流架構</a>
+            <a class="nav-link" onclick="switchTab('tensors')">張量流與注意力</a>
+            <a class="nav-link" onclick="switchTab('flowmatching')">Flow Matching 與 RTC</a>
+            <a class="nav-link" onclick="switchTab('hierarchical')">階層子任務與 FAST</a>
+            <a class="nav-link" onclick="switchTab('parameters')">參數量審計</a>
+            <a class="nav-link" onclick="switchTab('pipeline')">Pipeline 實作</a>
+        </nav>
+
+        <div class="header-actions">
+            <a href="https://arxiv.org/abs/2506.01844" target="_blank" class="btn-action">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                論文鏈接
+            </a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-tag">輕量化實體智能具身機器人基礎模型</div>
+        <h1 class="hero-title">SmolVLA 模型架構深度解析報告</h1>
+        <p class="hero-desc">
+            SmolVLA 是 Hugging Face 為平民化機器人學習設計的超輕量 450M 參數 Vision-Language-Action (VLA) 基礎模型。透過精簡剪枝的 SmolVLM2 視覺語言主幹、非自回歸連續動作專家（Action Expert）以及 Flow Matching 向量場積分，讓具身多模態大模型得以在單張消費級 GPU 甚至邊緣設備上達成高達 30~50Hz 的即時閉環伺服控制。
+        </p>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-val primary">453.98M</div>
+                <div class="stat-label">總參數量 (Total Params)</div>
+                <div class="stat-sub">僅為 OpenVLA (7B) 的 1/15</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val emerald">103.82M</div>
+                <div class="stat-label">微調訓練參數量 (Trainable)</div>
+                <div class="stat-sub">凍結主幹時僅微調 Expert (22.9%)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val cyan">64 Tokens</div>
+                <div class="stat-label">單視角視覺壓縮 Token 數</div>
+                <div class="stat-sub">512&times;512 經 PixelShuffle 激進壓縮</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val amber">10 步 / 50 Actions</div>
+                <div class="stat-label">Flow Matching 動作分塊</div>
+                <div class="stat-sub">Euler 數值積分，單次產出 50 步軌跡</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Container -->
+    <main class="container">
+
+        <!-- Tab Bar -->
+        <div class="tab-bar-wrapper">
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="switchTab('overview')">
+                    <span>1.</span> 總覽與設計哲學
+                </button>
+                <button class="tab-btn" onclick="switchTab('architecture')">
+                    <span>2.</span> 雙流異構架構深度剖析
+                </button>
+                <button class="tab-btn" onclick="switchTab('tensors')">
+                    <span>3.</span> 張量流、維度與注意力量表
+                </button>
+                <button class="tab-btn" onclick="switchTab('flowmatching')">
+                    <span>4.</span> Continuous Flow Matching 與 RTC
+                </button>
+                <button class="tab-btn" onclick="switchTab('hierarchical')">
+                    <span>5.</span> 階層式子任務與 FAST 輔助頭
+                </button>
+                <button class="tab-btn" onclick="switchTab('parameters')">
+                    <span>6.</span> 實測模型參數量審計
+                </button>
+                <button class="tab-btn" onclick="switchTab('pipeline')">
+                    <span>7.</span> 預處理 / 後處理與代碼導讀
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB 1: OVERVIEW & PHILOSOPHY -->
+        <div id="tab-overview" class="tab-panel active">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>1. SmolVLA 設計哲學與全局定位</h2>
+                        <p>為什麼機器人領域需要 450M 等級的 VLA 模型？</p>
+                    </div>
+                    <span class="badge badge-primary">Foundational Concept</span>
+                </div>
+
+                <p class="lead">
+                    過去兩年，具身智能領域以 RT-2 (55B)、OpenVLA (7B)、π0 (3.1B) 等大型多模態動作模型為主導。然而，這類超大模型在實體機器人部署中面臨難以跨越的<strong>三大硬體鴻溝</strong>：
+                </p>
+
+                <div class="grid-3">
+                    <div class="sub-card">
+                        <div style="font-size:1.8rem; margin-bottom:0.5rem;">⏱️</div>
+                        <h3>推理延遲過高</h3>
+                        <p>7B+ 自回歸模型單次推理需 150~500ms，無法配合機器人本體需要 20~50Hz 的閉環反應頻率，遇到外力干擾極易脫軌。</p>
+                    </div>
+                    <div class="sub-card">
+                        <div style="font-size:1.8rem; margin-bottom:0.5rem;">💰</div>
+                        <h3>算力成本巨大</h3>
+                        <p>通常需要配備雙 A100/H100 工作站才能進行端側推理，一般實驗室或消費級機械臂（如 SO-100、Aloha）難以普及負擔。</p>
+                    </div>
+                    <div class="sub-card">
+                        <div style="font-size:1.8rem; margin-bottom:0.5rem;">📉</div>
+                        <h3>連續動作離散化精度損失</h3>
+                        <p>傳統 VLA 將連續關節角粗暴離散化為 256 個 Token 進行自回歸分類，導致軌跡抖動且無法進行精準微幅控制。</p>
+                    </div>
+                </div>
+
+                <h3>SmolVLA 的核心突破策略</h3>
+                <ul>
+                    <li><strong>剪枝視覺語言骨幹 (Pruned SmolVLM2)：</strong> 將原生 32 層的 SmolVLM2-500M 剪枝為前 16 層，並將視覺輸入（512&times;512）藉由 Pixel-Shuffle Resampler 壓縮至僅 <strong>64 個視覺 Token</strong>，大幅降低注意力計算量。</li>
+                    <li><strong>雙流分離解耦 (Asymmetric Dual-Stream)：</strong> 感知大腦（VLM）與動作小腦（Action Expert）分開。視覺語言只計算一次前綴（Prefix），產生 KV Cache；輕量級動作專家（僅 98M）獨立迭代生成連續動作軌跡。</li>
+                    <li><strong>連續向量場流匹配 (Flow Matching Denoising)：</strong> 取代離散動作 Token，利用條件流匹配技術直接在連續動作空間進行向量場學習，僅需 10 步歐拉積分（Euler Step）即可生成長度 50 步的平滑動作分塊（Action Chunk）。</li>
+                    <li><strong>即時動作分塊 (Real-Time Chunking, RTC)：</strong> 引入執行視界（Execution Horizon）與剩餘動作軌跡導引，解決非同步推理期間機械臂移動造成的邊界突變。</li>
+                    <li><strong>階層式子任務規劃 (Hierarchical Subtask Tokens)：</strong> 支援以 <code>&lt;subtask&gt;...&lt;/subtask&gt;</code> 進行兩段式解耦——由 SmolVLM 透過 Teacher Forcing 學習自回歸步驟推理，產生的子任務 Token 再透過交叉注意力引導 Action Expert 執行精準流匹配動作。</li>
+                </ul>
+
+                <div class="callout success">
+                    <div class="callout-title">💡 性能與資源平衡亮點</div>
+                    <p style="margin-bottom:0;">
+                        在 LeRobot 的各類基準測試（如 Aloha Sim、SO-100 Pick-and-Place）中，450M 的 SmolVLA 展現出與數十億參數 VLA 旗鼓相當的任務成功率（50 次演示微調即可達 >70% 成功率），但訓練時僅需單張消費級 RTX 3090/4090 或 A10G 即可在 4 小時內完成 20,000 步收斂！
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: ARCHITECTURE DEEP DIVE -->
+        <div id="tab-architecture" class="tab-panel">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>2. 雙流異構架構深度剖析</h2>
+                        <p>視覺語言骨幹 (SmolVLM2) 與動作專家 (Action Expert) 的協同機制</p>
+                    </div>
+                    <span class="badge badge-cyan">Core Architecture</span>
+                </div>
+
+                                                <!-- SVG Architecture Diagram (Updated with Subtask AR Stream & FAST Action Head) -->
+                <div class="diagram-wrapper">
+                    <svg viewBox="0 0 1180 620" width="100%" height="580" xmlns="http://www.w3.org/2000/svg" style="font-family:'Inter', sans-serif;">
+                        <defs>
+                            <linearGradient id="grad-vlm" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25"/>
+                                <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.1"/>
+                            </linearGradient>
+                            <linearGradient id="grad-expert" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.25"/>
+                                <stop offset="100%" stop-color="#6366f1" stop-opacity="0.1"/>
+                            </linearGradient>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1 L 10 5 L 0 9 z" fill="#818cf8"/>
+                            </marker>
+                            <marker id="arrow-pink" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1 L 10 5 L 0 9 z" fill="#f472b6"/>
+                            </marker>
+                            <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1 L 10 5 L 0 9 z" fill="#06b6d4"/>
+                            </marker>
+                            <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981"/>
+                            </marker>
+                        </defs>
+
+                        <!-- Background Zones -->
+                        <!-- VLM Stream Box -->
+                        <rect x="25" y="25" width="575" height="565" rx="16" fill="url(#grad-vlm)" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6,4"/>
+                        <text x="45" y="55" fill="#60a5fa" font-size="16" font-weight="700">【感知與規劃大腦】SmolVLM2-500M (剪枝至 16 層)</text>
+                        <text x="45" y="75" fill="#93c5fd" font-size="11">Hidden Size: 960 | 15 Attn Heads | 5 KV Heads (GQA) | 兼備 Subtask AR 與 FAST 輔助頭</text>
+
+                        <!-- Action Expert Stream Box -->
+                        <rect x="635" y="25" width="520" height="565" rx="16" fill="url(#grad-expert)" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="6,4"/>
+                        <text x="655" y="55" fill="#c084fc" font-size="16" font-weight="700">【連續動作小腦】Action Expert (16 層 Llama 變體)</text>
+                        <text x="655" y="75" fill="#ddd6fe" font-size="11">Hidden Size: 720 (0.75x) | 15 Heads | 5 KV Heads | SwiGLU: 2048 | 10 步歐拉連續流匹配</text>
+
+                        <!-- Inputs for VLM -->
+                        <g transform="translate(40, 95)">
+                            <rect width="100" height="60" rx="8" fill="#1e293b" stroke="#475569"/>
+                            <text x="50" y="24" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">多相機視角</text>
+                            <text x="50" y="40" fill="#94a3b8" font-size="9" text-anchor="middle">[B, 3, 512, 512]</text>
+                            <text x="50" y="52" fill="#38bdf8" font-size="8.5" text-anchor="middle">壓縮成 64 Tokens</text>
+                        </g>
+
+                        <g transform="translate(150, 95)">
+                            <rect width="105" height="60" rx="8" fill="#1e293b" stroke="#475569"/>
+                            <text x="52" y="24" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">全局任務指令</text>
+                            <text x="52" y="40" fill="#94a3b8" font-size="9" text-anchor="middle">"整理桌面紅積木"</text>
+                            <text x="52" y="52" fill="#a7f3d0" font-size="8.5" text-anchor="middle">Tokenizer (Max 48)</text>
+                        </g>
+
+                        <g transform="translate(265, 95)">
+                            <rect width="105" height="60" rx="8" fill="#1e293b" stroke="#475569"/>
+                            <text x="52" y="24" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">本體狀態 State</text>
+                            <text x="52" y="40" fill="#94a3b8" font-size="9" text-anchor="middle">[B, state &le; 32]</text>
+                            <text x="52" y="52" fill="#fbbf24" font-size="8.5" text-anchor="middle">state_proj (32&rarr;960)</text>
+                        </g>
+
+                        <!-- Subtask Module -->
+                        <g transform="translate(380, 95)">
+                            <rect width="105" height="60" rx="8" fill="#831843" stroke="#f43f5e" stroke-width="1.2"/>
+                            <text x="52" y="22" fill="#fecdd3" font-size="10.5" font-weight="700" text-anchor="middle">階層子任務 Token</text>
+                            <text x="52" y="38" fill="#fda4af" font-size="8.5" text-anchor="middle">&lt;subtask&gt;...&lt;/subtask&gt;</text>
+                            <text x="52" y="52" fill="#ffe4e6" font-size="8" text-anchor="middle">訓練: GT | 推理: AR</text>
+                        </g>
+
+                        <!-- FAST Action Token Module (NEWLY HIGHLIGHTED) -->
+                        <g transform="translate(495, 95)">
+                            <rect width="95" height="60" rx="8" fill="#164e63" stroke="#06b6d4" stroke-width="1.2"/>
+                            <text x="47" y="22" fill="#a5f3fc" font-size="10" font-weight="700" text-anchor="middle">FAST 離散 Token</text>
+                            <text x="47" y="38" fill="#67e8f9" font-size="8.5" text-anchor="middle">Vocab 2048, L&le;64</text>
+                            <text x="47" y="52" fill="#cffafe" font-size="8" text-anchor="middle">Stage-1 輔助預熱</text>
+                        </g>
+
+                        <!-- Subtask AR Loop -->
+                        <path d="M 435 240 Q 455 190 435 160" fill="none" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow-pink)"/>
+
+                        <!-- Prefix Embeddings Cat -->
+                        <rect x="40" y="175" width="550" height="40" rx="8" fill="#0f172a" stroke="#3b82f6"/>
+                        <text x="315" y="200" fill="#93c5fd" font-size="11.5" font-weight="600" text-anchor="middle">前綴拼接 Prefix [Images(64) + Lang(48) + State(1) + Subtask(32) + FAST(64)] &rarr; 960d</text>
+
+                        <!-- VLM Layers block -->
+                        <rect x="40" y="240" width="550" height="85" rx="10" fill="#1e3a8a" stroke="#60a5fa" stroke-width="2"/>
+                        <text x="315" y="268" fill="#ffffff" font-size="13.5" font-weight="700" text-anchor="middle">SmolVLM2 16 層 Self-Attention 前綴變換 (Prefill)</text>
+                        <text x="315" y="288" fill="#bfdbfe" font-size="10.5" text-anchor="middle">1. 訓練 Stage-1：lm_head &rarr; subtask_loss (文字 CE) + fast_action_head &rarr; fast_loss (動作 CE)</text>
+                        <text x="315" y="306" fill="#93c5fd" font-size="10.5" text-anchor="middle">2. 推理 Step-0：一次性前向計算出包含子任務的前綴 Key / Value 快取 (KV Cache)</text>
+
+                        <!-- FAST Action Head Output Branch in Stage 1 -->
+                        <g transform="translate(40, 345)">
+                            <rect width="550" height="46" rx="8" fill="#082f49" stroke="#06b6d4" stroke-dasharray="4,3"/>
+                            <text x="275" y="20" fill="#67e8f9" font-size="11" font-weight="700" text-anchor="middle">【Stage-1 輔助預熱頭】fast_action_head (960 &rarr; 2048 分類器)</text>
+                            <text x="275" y="36" fill="#a5f3fc" font-size="9.5" text-anchor="middle">計算離散動作交叉熵 fast_loss，強迫 VLM 建立具身幾何感知 ｜ ⚠️ 推理時完全切除 (零延遲)</text>
+                        </g>
+
+                        <!-- KV Cache Line to Action Expert -->
+                        <path d="M 590 282 L 645 282" fill="none" stroke="#38bdf8" stroke-width="3" marker-end="url(#arrow)" stroke-dasharray="5,2"/>
+                        <circle cx="617" cy="282" r="16" fill="#0284c7" stroke="#38bdf8"/>
+                        <text x="617" y="286" fill="#ffffff" font-size="10" font-weight="bold" text-anchor="middle">KV</text>
+
+                        <!-- Action Expert Inputs -->
+                        <g transform="translate(650, 95)">
+                            <rect width="145" height="60" rx="8" fill="#1e293b" stroke="#475569"/>
+                            <text x="72" y="24" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">高斯噪聲軌跡 x_t</text>
+                            <text x="72" y="40" fill="#94a3b8" font-size="9" text-anchor="middle">[B, 50, action_dim &le; 32]</text>
+                            <text x="72" y="52" fill="#c084fc" font-size="8.5" text-anchor="middle">action_in_proj (32 &rarr; 720)</text>
+                        </g>
+
+                        <g transform="translate(810, 95)">
+                            <rect width="125" height="60" rx="8" fill="#1e293b" stroke="#475569"/>
+                            <text x="62" y="24" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">時間步 Timestep t</text>
+                            <text x="62" y="40" fill="#94a3b8" font-size="9" text-anchor="middle">t &isin; [0, 1] 標量</text>
+                            <text x="62" y="52" fill="#f472b6" font-size="8.5" text-anchor="middle">Sinusoidal Pos (720)</text>
+                        </g>
+
+                        <g transform="translate(950, 95)">
+                            <rect width="180" height="60" rx="8" fill="#1e293b" stroke="#475569"/>
+                            <text x="90" y="24" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">時間與動作融合 MLP</text>
+                            <text x="90" y="40" fill="#94a3b8" font-size="9" text-anchor="middle">Linear + SiLU + Linear</text>
+                            <text x="90" y="52" fill="#818cf8" font-size="8.5" text-anchor="middle">[720 + 720] &rarr; 720 &rarr; 720</text>
+                        </g>
+
+                        <!-- Suffix Tokens -->
+                        <rect x="650" y="175" width="480" height="40" rx="8" fill="#0f172a" stroke="#8b5cf6"/>
+                        <text x="890" y="200" fill="#ddd6fe" font-size="12" font-weight="600" text-anchor="middle">後綴動作 Tokens (Suffix Embeddings) [B, 50, 720]</text>
+
+                        <!-- Expert Layers Block -->
+                        <rect x="650" y="240" width="480" height="100" rx="10" fill="#4c1d95" stroke="#a855f7" stroke-width="2"/>
+                        <text x="890" y="270" fill="#ffffff" font-size="14" font-weight="700" text-anchor="middle">16 層 Action Expert (交錯式自注意力與交叉注意力)</text>
+                        <text x="890" y="292" fill="#e9d5ff" font-size="11" text-anchor="middle">偶數層: 動作 Token 間因果單向 Self-Attention (Causal: Action i 僅關注 &le; i)</text>
+                        <text x="890" y="310" fill="#c084fc" font-size="11" font-weight="600" text-anchor="middle">奇數層: 交叉注意力 Cross-Attn (檢索包含 Subtask 的前綴 KV Cache)</text>
+                        <text x="890" y="328" fill="#fda4af" font-size="10" text-anchor="middle">&times; 10 步歐拉數值積分迴圈 (dt = -0.1)</text>
+
+                        <!-- Action Out Proj -->
+                        <path d="M 890 340 L 890 380" fill="none" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow)"/>
+                        <rect x="730" y="380" width="320" height="40" rx="8" fill="#1e293b" stroke="#10b981"/>
+                        <text x="890" y="405" fill="#6ee7b7" font-size="12" font-weight="600" text-anchor="middle">action_out_proj (720 &rarr; 32) &rarr; 預測連續速度場 v_t</text>
+
+                        <!-- Final Action Chunk output -->
+                        <path d="M 890 420 L 890 460" fill="none" stroke="#10b981" stroke-width="2" marker-end="url(#arrow-green)"/>
+                        <rect x="700" y="460" width="380" height="46" rx="8" fill="#064e3b" stroke="#059669" stroke-width="1.5"/>
+                        <text x="890" y="482" fill="#a7f3d0" font-size="12" font-weight="700" text-anchor="middle">平滑連續動作分塊 Action Chunk [B, 50, robot_action_dim]</text>
+                        <text x="890" y="498" fill="#6ee7b7" font-size="9.5" text-anchor="middle">經由 RTC 即時分塊邊界導引，輸出至機械臂馬達驅動 (30~50Hz)</text>
+
+                        <!-- Euler Integration Loop arrow -->
+                        <path d="M 650 290 Q 590 370 730 400" fill="none" stroke="#f43f5e" stroke-width="2" stroke-dasharray="4,2"/>
+                        <rect x="585" y="375" width="90" height="24" rx="4" fill="#090d16" stroke="#f43f5e"/>
+                        <text x="630" y="391" fill="#fb7185" font-size="9.5" font-weight="bold" text-anchor="middle">10 步歐拉迭代</text>
+                    </svg>
+                    <div class="diagram-caption">圖 1：SmolVLA 雙流端到端架構全景圖（完整繪製 SmolVLM 骨幹、Subtask AR 解碼、FAST 動作預熱頭、與 Action Expert 交叉注意力流）</div>
+                </div>
+
+                                <h3>核心模組詳細職責與規格</h3>
+                <div class="grid-3">
+                    <div class="sub-card">
+                        <h3>1. 視覺語言大腦 (SmolVLM2)</h3>
+                        <p>負責高層環境感知與任務語義理解：</p>
+                        <ul>
+                            <li><strong>視覺編碼 (SigLIP 12L)：</strong> 隱藏維度 768，自帶 12 頭。圖像 Top-Left padding 縮放至 512&times;512，正規化至 [-1, 1]。</li>
+                            <li><strong>Pixel-Shuffle 降採樣：</strong> 1024 個 patch 激進<strong>壓縮成僅 64 個特徵 Token (Hidden 960)</strong>，降低顯存與注意力負擔。</li>
+                            <li><strong>剪枝文字模型 (16L)：</strong> 原始 SmolVLM2 截斷為前 16 層。在推理時前綴僅在 Step 0 <strong>計算一次 KV Cache</strong>。</li>
+                            <li><strong>自回歸子任務頭：</strong> 透過 <code>lm_head</code> 支援自回歸解碼 <code>&lt;subtask&gt;...&lt;/subtask&gt;</code>。</li>
+                        </ul>
+                    </div>
+
+                    <div class="sub-card">
+                        <h3>2. 動作專家小腦 (Action Expert)</h3>
+                        <p>負責基於條件特徵生成高精度的連續動作軌跡：</p>
+                        <ul>
+                            <li><strong>非自回歸 Llama 變體架構：</strong> 擁有 16 層，採用 0.75 寬度乘數（`expert_width_multiplier=0.75`），隱藏維度 720，SwiGLU 中間維度 2048，參數量約 98.2M。</li>
+                            <li><strong>交錯式 SA / CA 注意力：</strong> 偶數層為動作 Token 間自注意力（建立關節動力學相依）；奇數層為交叉注意力（檢索 VLM 前綴 KV 快取）。</li>
+                            <li><strong>連續流匹配去噪：</strong> 利用 10 步歐拉數值積分，從高斯噪聲直接生成 50 步平滑的關節動作分塊。</li>
+                        </ul>
+                    </div>
+
+                    <div class="sub-card" style="border: 1px solid rgba(6, 182, 212, 0.4); background: rgba(8, 47, 73, 0.3);">
+                        <h3 style="color:#38bdf8;">3. FAST 離散動作輔助頭</h3>
+                        <p>Stage-1 訓練專屬的具身空間預熱頭：</p>
+                        <ul>
+                            <li><strong>獨立動作詞表 (Vocab 2048)：</strong> 來自 Physical Intelligence FAST 分詞器，完全獨立於語言詞表。</li>
+                            <li><strong>模組參數：</strong> 包含 <code>fast_token_embed (2048 &rarr; 960)</code> 與 <code>fast_action_head (960 &rarr; 2048)</code>，參數量約 3.93M。</li>
+                            <li><strong>動作感知預熱：</strong> 在 Stage-1 透過離散動作分類交叉熵損失，強迫 VLM 骨幹在微調前就建立對機器人關節幾何空間的敏感度。</li>
+                            <li><strong>推理零開銷切除：</strong> <strong>推理部署時完全切除</strong>，不參與任何運算，不增加端側延遲！</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="callout info" style="margin-top:1.5rem;">
+                    <div class="callout-title">💡 深度架構解析：階層式子任務 Token 究竟是如何「傳入」Action Expert 的？</div>
+                    <p><strong>問：直傳序列 Token &times; 還是 跨模態前綴 KV Cache 交叉注意力 &check;？</strong></p>
+                    <p>在概念直覺上，大家容易想像 Action Expert 會把「子任務 Token」直接當作輸入序列的一部分（如前綴在動作 Token 之前）。但 SmolVLA 的代碼實作採用了更為優雅且算力極致的<strong>「前綴 KV 快取交叉注意力橋接（KV Cross-Attention Bridging）」</strong>：</p>
+                    <ul>
+                        <li><strong>Action Expert 根本沒有語言詞表嵌入層（<code>self.lm_expert.embed_tokens = None</code>）：</strong> Action Expert 的隱藏維度是 720，而 VLM 語言嵌入維度是 960，動作小腦本身無法直接解析自然語言文字。</li>
+                        <li><strong>空間圖文深度對齊在前，小腦檢索在後：</strong> <code>subtask_tokens</code> 先在 SmolVLM 內部與相機視角影像、全局指令、狀態進行 16 層跨模態注意力運算，將「抓取紅色積木」等子任務語義與相機像素特徵融合，轉化為高階鍵值矩陣（<code>KV Cache</code>）。</li>
+                        <li><strong>10 步歐拉積分中每一步都被子任務條件約束：</strong> Action Expert 的奇數層（1, 3, 5, ...）透過 <code>forward_cross_attn_layer</code>，以動作 Token 為 <code>Query (720d)</code>，跨模態檢索包含子任務特徵的 <code>Key/Value Cache (320d)</code>。<strong>因此，子任務 Token 的語義資訊在每一層去噪中都 100% 傳入並約束著 Action Expert！</strong></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: TENSOR FLOW & ATTENTION -->
+        <div id="tab-tensors" class="tab-panel">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>3. 張量流、維度變換與注意力機制</h2>
+                        <p>完整的 Token Layout 與 2D Attention Mask 矩陣構造解析</p>
+                    </div>
+                    <span class="badge badge-emerald">Tensor Dynamics</span>
+                </div>
+
+                <h3>輸入輸出張量維度流 (Tensor Flow Specification)</h3>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>階段 / 模組</th>
+                                <th>輸入張量名</th>
+                                <th>輸入形狀 (Shape)</th>
+                                <th>處理操作 / 投影層</th>
+                                <th>輸出張量形狀</th>
+                                <th>實作代碼位置</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>視覺預處理</td>
+                                <td class="mono">batch["observation.images.*"]</td>
+                                <td class="mono">[B, 3, H, W]</td>
+                                <td>`resize_with_pad` &times;2 - 1</td>
+                                <td class="mono">[B, 3, 512, 512]</td>
+                                <td>`modeling_smolvla.py#L402-448`</td>
+                            </tr>
+                            <tr>
+                                <td>視覺編碼與降採樣</td>
+                                <td class="mono">img</td>
+                                <td class="mono">[B, 3, 512, 512]</td>
+                                <td>`SigLIP + connector`</td>
+                                <td class="mono">[B, 64, 960]</td>
+                                <td>`smolvlm_with_expert.py#L223`</td>
+                            </tr>
+                            <tr>
+                                <td>文字 Prompt 編碼</td>
+                                <td class="mono">batch["tokens"]</td>
+                                <td class="mono">[B, L_lang &le; 48]</td>
+                                <td>`text_model.get_input_embeddings`</td>
+                                <td class="mono">[B, L_lang, 960]</td>
+                                <td>`smolvlm_with_expert.py#L238`</td>
+                            </tr>
+                            <tr>
+                                <td>機器狀態投影</td>
+                                <td class="mono">batch["observation.state"]</td>
+                                <td class="mono">[B, state_dim &le; 32]</td>
+                                <td>`pad_vector` + `state_proj`</td>
+                                <td class="mono">[B, 1, 960]</td>
+                                <td>`modeling_smolvla.py#L713-725`</td>
+                            </tr>
+                            <tr>
+                                <td>階層子任務編碼 (選用)</td>
+                                <td class="mono">subtask_tokens</td>
+                                <td class="mono">[B, L_sub &le; 32]</td>
+                                <td>`vlm.embed_language_tokens` &times; sqrt(d)</td>
+                                <td class="mono">[B, L_sub, 960]</td>
+                                <td>`modeling_smolvla.py#L730-743`</td>
+                            </tr>
+                            <tr>
+                                <td>前綴整體拼接 (Prefix)</td>
+                                <td class="mono">images + text + state (+ subtask)</td>
+                                <td>各部分拼接</td>
+                                <td>`torch.cat(embs, dim=1)`</td>
+                                <td class="mono">[B, L_prefix, 960]</td>
+                                <td>`modeling_smolvla.py#L627-769`</td>
+                            </tr>
+                            <tr>
+                                <td>動作與時間噪聲嵌入</td>
+                                <td class="mono">x_t, timestep</td>
+                                <td class="mono">[B, 50, 32], [B]</td>
+                                <td>`action_in_proj` + SinPos + MLP</td>
+                                <td class="mono">[B, 50, 720]</td>
+                                <td>`modeling_smolvla.py#L771-812`</td>
+                            </tr>
+                            <tr>
+                                <td>Action Expert 前向傳播</td>
+                                <td class="mono">suffix_embs + KV_cache</td>
+                                <td class="mono">[B, 50, 720]</td>
+                                <td>16-Layer Interleaved Expert</td>
+                                <td class="mono">[B, 50, 720]</td>
+                                <td>`modeling_smolvla.py#L853-863`</td>
+                            </tr>
+                            <tr>
+                                <td>速度場預測輸出</td>
+                                <td class="mono">suffix_out</td>
+                                <td class="mono">[B, 50, 720]</td>
+                                <td>`action_out_proj` (Linear)</td>
+                                <td class="mono">[B, 50, max_act &le; 32]</td>
+                                <td>`modeling_smolvla.py#L581, 863`</td>
+                            </tr>
+                            <tr>
+                                <td>後處理反正規化</td>
+                                <td class="mono">v_t / actions</td>
+                                <td class="mono">[B, 50, robot_dim]</td>
+                                <td>`unnormalize` + Aloha 角度映射</td>
+                                <td class="mono">[B, 50, robot_dim]</td>
+                                <td>`processor_smolvla.py#L108`</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>前綴與後綴注意力量表 (2D Attention Masking Pattern)</h3>
+                <p>
+                    SmolVLA 採用自定義的 2D 塊狀因果注意力遮罩（Block-wise Causal Attention Mask），精確控制不同模態資訊的單向與雙向可見性：
+                </p>
+
+                                <div class="diagram-wrapper">
+                    <svg viewBox="0 0 920 440" width="100%" height="400" xmlns="http://www.w3.org/2000/svg" style="font-family:'JetBrains Mono', monospace;">
+                        <rect width="920" height="440" fill="#080d1a" rx="10"/>
+                        <!-- Grid Axis Labels -->
+                        <text x="135" y="30" fill="#60a5fa" font-size="11" font-weight="bold" text-anchor="middle">視覺圖像(64)</text>
+                        <text x="245" y="30" fill="#a7f3d0" font-size="11" font-weight="bold" text-anchor="middle">全局指令(48)</text>
+                        <text x="335" y="30" fill="#fcd34d" font-size="11" font-weight="bold" text-anchor="middle">狀態(1)</text>
+                        <text x="450" y="30" fill="#f472b6" font-size="11" font-weight="bold" text-anchor="middle">子任務 Subtask(32)</text>
+                        <text x="710" y="30" fill="#c084fc" font-size="11" font-weight="bold" text-anchor="middle">動作 Token 後綴 Suffix(50)</text>
+
+                        <text x="20" y="85" fill="#60a5fa" font-size="10.5" font-weight="bold">視覺圖像</text>
+                        <text x="20" y="145" fill="#a7f3d0" font-size="10.5" font-weight="bold">全局指令</text>
+                        <text x="20" y="205" fill="#fcd34d" font-size="10.5" font-weight="bold">狀態 State</text>
+                        <text x="20" y="265" fill="#f472b6" font-size="10.5" font-weight="bold">子任務 Subtask</text>
+                        <text x="20" y="350" fill="#c084fc" font-size="10.5" font-weight="bold">動作 Actions</text>
+
+                        <!-- Row 1: Image -->
+                        <rect x="80" y="55" width="110" height="50" fill="#1e3a8a" stroke="#3b82f6" rx="4"/>
+                        <text x="135" y="84" fill="#93c5fd" font-size="10" text-anchor="middle">雙向可見 1</text>
+
+                        <rect x="195" y="55" width="100" height="50" fill="#1e3a8a" stroke="#3b82f6" rx="4"/>
+                        <text x="245" y="84" fill="#93c5fd" font-size="10" text-anchor="middle">雙向可見 1</text>
+
+                        <rect x="300" y="55" width="70" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="335" y="84" fill="#64748b" font-size="10" text-anchor="middle">0 (遮蔽)</text>
+
+                        <rect x="375" y="55" width="150" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="450" y="84" fill="#64748b" font-size="10" text-anchor="middle">0 (不可見未來子任務)</text>
+
+                        <rect x="530" y="55" width="360" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="710" y="84" fill="#64748b" font-size="10" text-anchor="middle">0 (嚴禁偷看未來動作)</text>
+
+                        <!-- Row 2: Lang -->
+                        <rect x="80" y="115" width="110" height="50" fill="#1e3a8a" stroke="#3b82f6" rx="4"/>
+                        <text x="135" y="144" fill="#93c5fd" font-size="10" text-anchor="middle">雙向可見 1</text>
+
+                        <rect x="195" y="115" width="100" height="50" fill="#1e3a8a" stroke="#3b82f6" rx="4"/>
+                        <text x="245" y="144" fill="#93c5fd" font-size="10" text-anchor="middle">雙向可見 1</text>
+
+                        <rect x="300" y="115" width="70" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="335" y="144" fill="#64748b" font-size="10" text-anchor="middle">0 (遮蔽)</text>
+
+                        <rect x="375" y="115" width="150" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="450" y="144" fill="#64748b" font-size="10" text-anchor="middle">0 (不可見子任務)</text>
+
+                        <rect x="530" y="115" width="360" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="710" y="144" fill="#64748b" font-size="10" text-anchor="middle">0 (不可見動作)</text>
+
+                        <!-- Row 3: State -->
+                        <rect x="80" y="175" width="110" height="50" fill="#047857" stroke="#10b981" rx="4"/>
+                        <text x="135" y="204" fill="#a7f3d0" font-size="10" text-anchor="middle">可見視覺 1</text>
+
+                        <rect x="195" y="175" width="100" height="50" fill="#047857" stroke="#10b981" rx="4"/>
+                        <text x="245" y="204" fill="#a7f3d0" font-size="10" text-anchor="middle">可見指令 1</text>
+
+                        <rect x="300" y="175" width="70" height="50" fill="#047857" stroke="#10b981" rx="4"/>
+                        <text x="335" y="204" fill="#a7f3d0" font-size="10" text-anchor="middle">自注意 1</text>
+
+                        <rect x="375" y="175" width="150" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="450" y="204" fill="#64748b" font-size="10" text-anchor="middle">0 (不可見子任務)</text>
+
+                        <rect x="530" y="175" width="360" height="50" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="710" y="204" fill="#64748b" font-size="10" text-anchor="middle">0 (不可見動作)</text>
+
+                        <!-- Row 4: Subtask (HIGHLIGHTED: Causal Attention) -->
+                        <rect x="80" y="235" width="110" height="60" fill="#831843" stroke="#f43f5e" rx="4"/>
+                        <text x="135" y="270" fill="#fbcfe8" font-size="10" text-anchor="middle">可見視覺 1</text>
+
+                        <rect x="195" y="235" width="100" height="60" fill="#831843" stroke="#f43f5e" rx="4"/>
+                        <text x="245" y="270" fill="#fbcfe8" font-size="10" text-anchor="middle">可見指令 1</text>
+
+                        <rect x="300" y="235" width="70" height="60" fill="#831843" stroke="#f43f5e" rx="4"/>
+                        <text x="335" y="270" fill="#fbcfe8" font-size="10" text-anchor="middle">可見狀態 1</text>
+
+                        <!-- Subtask Causal Triangle -->
+                        <rect x="375" y="235" width="150" height="60" fill="#9d174d" stroke="#f472b6" stroke-width="1.5" rx="4"/>
+                        <text x="450" y="260" fill="#ffffff" font-size="10.5" font-weight="bold" text-anchor="middle">因果單向三角遮罩</text>
+                        <text x="450" y="278" fill="#fbcfe8" font-size="9" text-anchor="middle">Token i 僅能關注 &le; i 標記</text>
+
+                        <rect x="530" y="235" width="360" height="60" fill="#1e293b" stroke="#475569" rx="4"/>
+                        <text x="710" y="270" fill="#64748b" font-size="10" text-anchor="middle">0 (嚴禁偷看未來動作)</text>
+
+                        <!-- Row 5: Actions -->
+                        <rect x="80" y="305" width="110" height="95" fill="#581c87" stroke="#a855f7" rx="4"/>
+                        <text x="135" y="355" fill="#e9d5ff" font-size="10" text-anchor="middle">交叉注意 1</text>
+
+                        <rect x="195" y="305" width="100" height="95" fill="#581c87" stroke="#a855f7" rx="4"/>
+                        <text x="245" y="355" fill="#e9d5ff" font-size="10" text-anchor="middle">交叉注意 1</text>
+
+                        <rect x="300" y="305" width="70" height="95" fill="#581c87" stroke="#a855f7" rx="4"/>
+                        <text x="335" y="355" fill="#e9d5ff" font-size="10" text-anchor="middle">可見狀態 1</text>
+
+                        <rect x="375" y="305" width="150" height="95" fill="#701a75" stroke="#f472b6" stroke-width="1.5" rx="4"/>
+                        <text x="450" y="345" fill="#fdf4ff" font-size="10.5" font-weight="bold" text-anchor="middle">交叉注意子任務 1</text>
+                        <text x="450" y="365" fill="#f5d0fe" font-size="9" text-anchor="middle">以生成子任務為動作條件</text>
+
+                        <rect x="530" y="305" width="360" height="95" fill="#7e22ce" stroke="#c084fc" rx="4"/>
+                        <text x="710" y="340" fill="#f5d0fe" font-size="11.5" font-weight="bold" text-anchor="middle">因果單向動作注意力 (Causal Lower-Triangular 1)</text>
+                        <text x="710" y="360" fill="#e9d5ff" font-size="9.5" text-anchor="middle">50 個關節動作 Token 嚴格遵循下三角因果遮罩 (Action i 僅關注 &le; i)</text>
+                        <text x="710" y="380" fill="#fbcfe8" font-size="8.5" text-anchor="middle">嚴格防止未來軌跡逆向洩漏 (Temporal Causality Constraint)</text>
+                    </svg>
+                    <div class="diagram-caption">圖 2：SmolVLA 包含子任務（Subtask）與動作分塊的 2D 混合注意力遮罩矩陣（突顯動作後綴下三角因果遮罩）</div>
+                </div>
+
+                <div class="callout warning">
+                    <div class="callout-title">⚠️ 實測代碼驗證：動作後綴 (Action Chunk) 嚴格遵循「因果單向 (Causal) 注意力」！</div>
+                    <p>
+                        在直覺上容易誤以為 Flow Matching 既然是同時去噪 50 步，動作之間就會像影像一樣雙向互看；但<strong>經過 LeRobot 源代碼實測，動作 Token 之間在 Self-Attention 層嚴格採用下三角因果遮罩（Lower-Triangular Causal Mask）</strong>！
+                    </p>
+                    <div style="background:#090d16; padding:12px; border-radius:6px; font-family:'JetBrains Mono'; font-size:0.85rem; color:#818cf8; margin:10px 0;">
+                        # 源碼實測驗證：modeling_smolvla.py#L807 & vla_utils.py#L86<br>
+                        # embed_suffix 每步遞增 att_masks += [1] * chunk_size<br>
+                        att_masks = tensor([[1, 1, 1, 1, 1]])<br>
+                        cumsum = torch.cumsum(att_masks, dim=1)  # -> tensor([[1, 2, 3, 4, 5]])<br>
+                        # make_att_2d_masks 判定 cumsum[j] <= cumsum[i]，輸出嚴格下三角矩陣：<br>
+                        att_2d_masks = tensor([<br>
+                        &nbsp;&nbsp;[1, 0, 0, 0, 0],<br>
+                        &nbsp;&nbsp;[1, 1, 0, 0, 0],<br>
+                        &nbsp;&nbsp;[1, 1, 1, 0, 0],<br>
+                        &nbsp;&nbsp;[1, 1, 1, 1, 0],<br>
+                        &nbsp;&nbsp;[1, 1, 1, 1, 1]]<br>
+                        )
+                    </div>
+                    <p style="margin-bottom:0;">
+                        <strong>為什麼採用因果注意力而非全雙向？</strong><br>
+                        1. <strong>時序因果約束（Temporal Causality）：</strong> 在真實物理控制中，時間點 $t$ 的關節狀態必然只能受到歷史動態 $0 \le \tau \le t$ 的物理推動，嚴禁未來軌跡點向過去「時間逆向穿越（Future Leakage）」，否則會破壞馬達的真實運動學預測。<br>
+                        2. <strong>Prefix-LM 統一大架構：</strong> 繼承自 BigVision / OpenPI 的標準設計，前綴為雙向注意力（`att_mask = 0`），後綴所有生成 Token 逐步累加（`att_mask = 1`），完美相容 RTC 邊界前綴引導。
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: FLOW MATCHING & RTC -->
+        <div id="tab-flowmatching" class="tab-panel">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>4. Continuous Flow Matching 與即時分塊 (RTC)</h2>
+                        <p>直擊向量場歐拉積分與機械臂抗延遲軌跡平滑技術</p>
+                    </div>
+                    <span class="badge badge-amber">Dynamics & Control</span>
+                </div>
+
+                <h3>連續向量場流匹配 (Flow Matching Formulation)</h3>
+                <p>
+                    SmolVLA 放棄了傳統 Diffusion 繁複的雜訊排程 (Noise Schedule) 與反向 SDE/ODE，改採形式極為優美的<strong>條件流匹配 (Conditional Flow Matching, CFM)</strong>：
+                </p>
+
+                <div class="grid-2">
+                    <div class="sub-card">
+                        <h3>1. 訓練目標 (Training Objective)</h3>
+                        <p>給定真實專家動作軌跡 $a \sim q(a)$ 與隨機高斯噪聲 $\epsilon \sim \mathcal{N}(0, I)$，定義線性向量插值軌跡：</p>
+                        <div style="background:#090d16; padding:12px; border-radius:6px; font-family:'JetBrains Mono'; font-size:0.9rem; color:#818cf8; margin:10px 0;">
+                            x_t = t &middot; &epsilon; + (1 - t) &middot; a<br>
+                            u_t = dx_t / dt = &epsilon; - a
+                        </div>
+                        <p>時間步 $t$ 自 Beta 分布採樣：$t \sim \text{Beta}(\alpha=1.5, \beta=1.0) \times 0.999 + 0.001$（偏好中等雜訊階段以強化學習動態）。模型預測速度場 $v_t$，損失函數即為均方誤差：</p>
+                        <div style="background:#090d16; padding:12px; border-radius:6px; font-family:'JetBrains Mono'; font-size:0.9rem; color:#34d399; margin:10px 0;">
+                            L_FM = E_{t, &epsilon;, a} [ || v_t(x_t, t; c) - (&epsilon; - a) ||^2 ]
+                        </div>
+                    </div>
+
+                    <div class="sub-card">
+                        <h3>2. 推理採樣 (10-Step Euler ODE Solver)</h3>
+                        <p>推理初始從純高斯噪聲 $x_1 \sim \mathcal{N}(0, I)$ 開始，設定步數 $N = 10$，步長 $dt = -1.0 / 10 = -0.1$：</p>
+                        <div style="background:#090d16; padding:12px; border-radius:6px; font-family:'JetBrains Mono'; font-size:0.9rem; color:#f472b6; margin:10px 0;">
+                            For step k = 0 to 9:<br>
+                            &nbsp;&nbsp;t = 1.0 + k &middot; dt<br>
+                            &nbsp;&nbsp;v_t = ActionExpert(x_t, t, KV_prefix)<br>
+                            &nbsp;&nbsp;x_{t+dt} = x_t + dt &middot; v_t<br>
+                            Return a_pred = x_0
+                        </div>
+                        <p>在短短 10 步數值積分後，噪聲張量 $x_1$ 沿著神經網絡定義的直線向量場平滑收斂至確定性動作 $x_0$！</p>
+                    </div>
+                </div>
+
+                <h3>即時分塊平滑技術 (Real-Time Chunking, RTC)</h3>
+                <p>
+                    在真實機械臂控制中，假設模型推理需消耗 $\Delta$ 毫秒（例如 50ms）。當新的一組動作 Chunk 計算完成時，機械臂在過去 50ms 內仍在執行上一組 Chunk 的動作。如果直接強制切換到新 Chunk 的第一步，關節將會產生劇烈的<strong>速度/加速度突變（Jerk）</strong>甚至觸發機械臂過載停機。
+                </p>
+
+                <div class="diagram-wrapper">
+                    <svg viewBox="0 0 800 240" width="100%" height="220" xmlns="http://www.w3.org/2000/svg" style="font-family:'Inter', sans-serif;">
+                        <rect width="800" height="240" fill="#0b1120" rx="10"/>
+                        <!-- Time Axis -->
+                        <line x1="60" y1="180" x2="740" y2="180" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+                        <text x="740" y="200" fill="#94a3b8" font-size="11">時間軸 t</text>
+
+                        <!-- Prev Chunk Execution -->
+                        <path d="M 80 140 Q 180 110 260 125" fill="none" stroke="#60a5fa" stroke-width="3"/>
+                        <text x="140" y="110" fill="#93c5fd" font-size="11" font-weight="bold">上一組 Chunk (已執行部分)</text>
+
+                        <!-- Leftover range -->
+                        <rect x="260" y="60" width="120" height="115" fill="rgba(245, 158, 11, 0.15)" stroke="#f59e0b" stroke-dasharray="4,4" rx="4"/>
+                        <text x="320" y="50" fill="#fcd34d" font-size="11" font-weight="bold" text-anchor="middle">推理延遲期間執行剩餘動作</text>
+                        <path d="M 260 125 Q 320 135 380 110" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="5,2"/>
+
+                        <!-- Without RTC: Discontinuous Jump -->
+                        <path d="M 380 70 L 380 110" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="3,3"/>
+                        <circle cx="380" cy="70" r="4" fill="#ef4444"/>
+                        <text x="400" y="75" fill="#f87171" font-size="10" font-weight="bold">無 RTC：位置跳躍突變 &times;</text>
+
+                        <!-- With RTC: Smooth Guidance -->
+                        <path d="M 380 110 Q 480 80 680 90" fill="none" stroke="#10b981" stroke-width="3"/>
+                        <circle cx="380" cy="110" r="5" fill="#10b981"/>
+                        <text x="500" y="110" fill="#6ee7b7" font-size="11" font-weight="bold">SmolVLA RTC：邊界條件無縫導引 &check;</text>
+                    </svg>
+                    <div class="diagram-caption">圖 3：RTC (Real-Time Chunking) 軌跡拼接邊界導引示意圖</div>
+                </div>
+
+                <div class="sub-card">
+                    <h3>RTC 算法內部實現細節 (`src/lerobot/policies/rtc/`)</h3>
+                    <ul>
+                        <li><strong>剩餘軌跡注入 (Leftover Tracking)：</strong> 當前推理啟動時，將上一組尚未執行完的剩餘動作 `prev_chunk_left_over` 連同當前估計的 `inference_delay` 傳入 `euler_integrate`。</li>
+                        <li><strong>條件導引去噪 (`rtc_processor.denoise_step`)：</strong> 在 10 步去噪過程中，RTC 根據指數衰減排程 (`RTCAttentionSchedule.EXP`)，對新 Chunk 前段施加導引權重 (`max_guidance_weight=5.0~10.0`)，強迫新軌跡的起點物理平滑地銜接在上一 Chunk 的終端狀態上。</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: HIERARCHICAL & FAST -->
+                <!-- TAB 5: HIERARCHICAL & FAST -->
+        <div id="tab-hierarchical" class="tab-panel">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>5. 階層式子任務 (Subtask Tokens) 與 FAST 離散輔助頭深度剖析</h2>
+                        <p>連通高層任務規劃（Subtask Planning）、Teacher Forcing 並行訓練與連續動作執行</p>
+                    </div>
+                    <span class="badge badge-rose">Hierarchical VLA</span>
+                </div>
+
+                <p class="lead">
+                    在長序列多階段的複雜操作任務中（例如「打開微波爐、將盤子放入、關上門」），單一全域自然語言指令往往無法提供足夠密集的導引信號。SmolVLA 實作了一套前瞻性的<strong>雙階段階層式架構 (Hierarchical VLA)</strong>：
+                    讓 SmolVLM 擔任高層「規劃大腦」輸出自然語言子任務，再由 Action Expert 擔任「執行小腦」進行連續關節流匹配控制。
+                </p>
+
+                <!-- Core Mechanism Comparison: Train vs Inference -->
+                <div class="grid-2">
+                    <div class="sub-card" style="border-left: 4px solid #38bdf8;">
+                        <h3 style="color:#38bdf8;">1. 訓練階段：並行 Teacher Forcing</h3>
+                        <p><strong>問：訓練時沒有在回圈中一步一步自回歸生成，如何學會自回歸？</strong></p>
+                        <p>就像預訓練 GPT-4 或 Llama 一樣，數據集中已經包含了標註好的 Ground-Truth 子任務標籤。因此，模型在 <code>compute_stage1_losses</code> 中施加 <strong>因果單向遮罩（Causal Mask）</strong>，在<strong>單次前向傳播（One Forward Pass）</strong>中並行計算所有位置的下一個 Token 預測交叉熵損失（Next-Token Prediction）：</p>
+                        <div style="background:#090d16; padding:10px; border-radius:6px; font-family:'JetBrains Mono'; font-size:0.85rem; color:#38bdf8; margin:8px 0;">
+                            L_subtask = CrossEntropy(logits, subtask_tokens)
+                        </div>
+                        <p>透過反向傳播更新 SmolVLM 的注意力層與 <code>lm_head</code>，大腦即可在毫秒級訓練中掌握「看圖說出當前步驟」的規劃能力，訓練效率是逐步解碼的數百倍！</p>
+                    </div>
+
+                    <div class="sub-card" style="border-left: 4px solid #f43f5e;">
+                        <h3 style="color:#f472b6;">2. 推理階段：自回歸解碼 &rarr; Expert 執行</h3>
+                        <p><strong>實際端側部署時的兩段式閉環推進：</strong></p>
+                        <ol style="margin-left:1.2rem; color:#e2e8f0; font-size:0.9rem;">
+                            <li><strong>自回歸解碼子任務 (<code>generate_subtask</code>)：</strong> 以 <code>&lt;subtask&gt;</code> 起始，透過 SmolVLM 的 <code>lm_head</code> 逐字解碼（Greedy 或 Sampling），直到生成 <code>&lt;/subtask&gt;</code> 結束符（例如產出「移動夾爪至藍色積木上方」）。</li>
+                            <li><strong>前綴快取 (KV Cache Prefill)：</strong> 將剛生成的子任務文字與影像、狀態拼接，一次性前進傳播取得包含子任務語義的 KV Cache。</li>
+                            <li><strong>小腦條件去噪：</strong> Action Expert 透過奇數層交叉注意力，檢索該子任務的 KV 特徵，在 10 步內去噪輸出 50 步連續動作軌跡！</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- Parameter Decoupling Matrix -->
+                <h3>關鍵參數解耦配置表 (`subtask_loss_weight` vs `condition_on_subtask`)</h3>
+                <p>
+                    許多工程師常疑惑：<em>「若 <code>condition_on_subtask=False</code>，Stage 1 還能訓練到自回歸子任務嗎？」</em> 答案是<strong>完全可以！</strong> 這兩個參數在代碼底層是完全解耦的：
+                </p>
+
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>配置模式</th>
+                                <th>subtask_loss_weight</th>
+                                <th>condition_on_subtask</th>
+                                <th>Stage 1 (SmolVLM 是否訓練 AR Subtask？)</th>
+                                <th>Stage 2 與 Inference (Action Expert 是否以 Subtask 為條件？)</th>
+                                <th>適用場景</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>情況 1：原生預設模式</strong><br>(Vanilla SmolVLA)</td>
+                                <td class="mono" style="color:#94a3b8;">= 0.0</td>
+                                <td class="mono" style="color:#94a3b8;">= False</td>
+                                <td>❌ <strong>完全不訓練</strong><br>不計算語言交叉熵損失</td>
+                                <td>❌ <strong>不依賴</strong><br>Expert 僅看 [影像 + 全局指令 + 狀態]</td>
+                                <td>標準單一任務操作（如 SO-100 抓放單一物件）</td>
+                            </tr>
+                            <tr style="background:rgba(6, 182, 212, 0.08);">
+                                <td><strong>情況 2：語言輔助正則化</strong><br>(Auxiliary Multi-Task)</td>
+                                <td class="mono" style="color:#38bdf8; font-weight:bold;">&gt; 0.0 (如 1.0)</td>
+                                <td class="mono" style="color:#94a3b8;">= False</td>
+                                <td> <strong style="color:#38bdf8;">會訓練！</strong><br>SmolVLM 會學習拆解步驟，提升視覺語言特徵品質</td>
+                                <td>❌ <strong>不依賴</strong><br>Expert 不接收子任務，推理時不調用自回歸，節省延遲</td>
+                                <td>算力有限但希望藉由語言監督提升 VLM 表徵能力的任務</td>
+                            </tr>
+                            <tr style="background:rgba(244, 63, 94, 0.1);">
+                                <td><strong>情況 3：完整階層式 VLA</strong><br>(Hierarchical Execution)</td>
+                                <td class="mono" style="color:#f43f5e; font-weight:bold;">&gt; 0.0 (如 1.0)</td>
+                                <td class="mono" style="color:#f43f5e; font-weight:bold;">= True</td>
+                                <td> <strong style="color:#f43f5e;">會訓練！</strong><br>SmolVLM 學習自回歸輸出子任務</td>
+                                <td> <strong style="color:#10b981;">依賴！</strong><br>訓練時 Expert 接收 GT；推理時 VLM 先思考生成子任務再餵給 Expert</td>
+                                <td>長序列、多階段複雜操作（如「打開抽屜並拿出工具放進盒子」）</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>核心訓練與推理代碼實作導讀</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">Python</span>
+                        <span>modeling_smolvla.py: Stage-1 Loss & Inference AR</span>
+                    </div>
+                    <pre><code><span class="comment"># 1. 訓練 Stage-1：Teacher Forcing 下的並行交叉熵損失 (modeling_smolvla.py#L1084-L1095)</span>
+<span class="keyword">if</span> subtask_tokens <span class="keyword">is not None</span>:
+    anchor = segment_offsets[<span class="string">"subtask_anchor"</span>]
+    hidden = prefix_out[:, anchor : anchor + length, :]
+    logits = <span class="keyword">self</span>.vlm_with_expert.vlm.lm_head(hidden)
+    <span class="comment"># 下一個 Token 預測損失 (Next-Token Cross-Entropy)</span>
+    token_loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]), subtask_tokens.reshape(-1))
+    subtask_loss = (token_loss * mask).sum() / mask.sum().clamp_min(1)
+
+<span class="comment"># 2. 推理階段：自回歸逐 Token 生成子任務 (modeling_smolvla.py#L965-L1043)</span>
+<span class="keyword">if</span> <span class="keyword">self</span>.config.condition_on_subtask:
+    <span class="comment"># 從 &lt;subtask&gt; 開始，逐步解碼直到 &lt;/subtask&gt;</span>
+    subtask_tokens = <span class="keyword">self</span>.generate_subtask(images, img_masks, lang_tokens, lang_masks, state)
+    <span class="comment"># 拼接至前綴並計算 KV Cache，再進入 10 步 Flow Matching 動作去噪</span>
+</code></pre>
+                </div>
+
+                <!-- Comparison with FAST tokens -->
+                <h3>重要辨析：子任務 Token vs. FAST 離散動作 Token</h3>
+                <div class="grid-2">
+                    <div class="sub-card">
+                        <h4 style="color:#f472b6;">Subtask Tokens (子任務文字標記)</h4>
+                        <ul>
+                            <li><strong>詞表：</strong> 共用 SmolVLM 原生自然語言詞表 (49,280+)。</li>
+                            <li><strong>功能定位：</strong> 高層任務語義規劃（「夾取」、「旋轉」、「放置」）。</li>
+                            <li><strong>推理生命週期：</strong> <strong>在推理時真實自回歸生成，並實際輸入 Action Expert</strong> 作為控制約束。</li>
+                        </ul>
+                    </div>
+                    <div class="sub-card">
+                        <h4 style="color:#38bdf8;">FAST Action Tokens (離散動作分詞)</h4>
+                        <ul>
+                            <li><strong>詞表：</strong> 專屬 Physical-Intelligence/fast 2048 離散動作詞表。</li>
+                            <li><strong>功能定位：</strong> Stage-1 預熱訓練輔助頭，迫使 VLM 骨幹在微調前建立對關節幾何空間的敏感度。</li>
+                            <li><strong>推理生命週期：</strong> <strong>推理時完全切除 (Pruned at Inference)</strong>，不會生成，亦不參與任何動作執行，零推理延遲！</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-parameters" class="tab-panel">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>6. 實測模型參數量審計與對比</h2>
+                        <p>基於本地代碼與 HuggingFace 權重實測的精確參數量分配表</p>
+                    </div>
+                    <span class="badge badge-primary">Empirical Audit</span>
+                </div>
+
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>子模組名稱 (Module Path)</th>
+                                <th>基礎架構類型</th>
+                                <th>關鍵超參數 (Hyperparameters)</th>
+                                <th>精確參數量 (Exact Params)</th>
+                                <th>佔總模型比例</th>
+                                <th>微調狀態 (Default)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>vision_model</strong></td>
+                                <td>SigLIP Vision Transformer</td>
+                                <td>12 layers, hidden=768, heads=12</td>
+                                <td class="mono">86,433,024</td>
+                                <td>19.04%</td>
+                                <td><span class="badge badge-amber">凍結 (Frozen)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>connector</strong></td>
+                                <td>PixelShuffle + MLP Projector</td>
+                                <td>1024 patches &rarr; 64 tokens, dim 960</td>
+                                <td class="mono">11,796,480</td>
+                                <td>2.60%</td>
+                                <td><span class="badge badge-amber">凍結 (Frozen)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>text_model (Active)</strong></td>
+                                <td>SmolLM2 Transformer (Pruned)</td>
+                                <td>16 layers, hidden=960, GQA (15/5 heads)</td>
+                                <td class="mono">204,628,800</td>
+                                <td>45.07%</td>
+                                <td><span class="badge badge-amber">凍結 (Frozen)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>lm_head</strong></td>
+                                <td>Language Modeling Projection</td>
+                                <td>hidden 960 &rarr; vocab 49,280+</td>
+                                <td class="mono">47,310,720</td>
+                                <td>10.42%</td>
+                                <td><span class="badge badge-amber">凍結 (Frozen)</span></td>
+                            </tr>
+                            <tr style="background: rgba(139, 92, 246, 0.1);">
+                                <td><strong>lm_expert (Action Expert)</strong></td>
+                                <td>LlamaModel (Custom Interleaved)</td>
+                                <td>16 layers, hidden=720, SwiGLU=2048</td>
+                                <td class="mono" style="color:#c084fc; font-weight:bold;">98,245,840</td>
+                                <td>21.64%</td>
+                                <td><span class="badge badge-emerald">可訓練 (Trainable)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>state_proj</strong></td>
+                                <td>Linear Projection</td>
+                                <td>max_state_dim 32 &rarr; 960</td>
+                                <td class="mono">31,680</td>
+                                <td>0.01%</td>
+                                <td><span class="badge badge-emerald">可訓練 (Trainable)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>action_in_proj / out_proj</strong></td>
+                                <td>Linear Projections</td>
+                                <td>32 &harr; 720</td>
+                                <td class="mono">46,832</td>
+                                <td>0.01%</td>
+                                <td><span class="badge badge-emerald">可訓練 (Trainable)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>action_time_mlp (in + out)</strong></td>
+                                <td>2-Layer Fusion MLP</td>
+                                <td>1440 &rarr; 720 &rarr; 720</td>
+                                <td class="mono">1,556,640</td>
+                                <td>0.34%</td>
+                                <td><span class="badge badge-emerald">可訓練 (Trainable)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>fast_token_embed / head</strong></td>
+                                <td>FAST Action Token Modules</td>
+                                <td>vocab 2048 &harr; 960</td>
+                                <td class="mono">3,934,208</td>
+                                <td>0.87%</td>
+                                <td><span class="badge badge-cyan">輔助頭 (Auxiliary)</span></td>
+                            </tr>
+                            <tr style="font-weight:bold; background:#111827; border-top:2px solid var(--border-highlight);">
+                                <td colspan="3">總計 (Total Model Parameters)</td>
+                                <td class="mono" style="color:#818cf8; font-size:1rem;">453,984,224</td>
+                                <td>100.00%</td>
+                                <td><span class="badge badge-primary">預設微調僅 ~104M</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>當前主流 VLA 模型綜合橫向對比表</h3>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>模型名稱</th>
+                                <th>總參數量</th>
+                                <th>視覺主幹 (Vision)</th>
+                                <th>語言/多模態骨幹</th>
+                                <th>動作生成方式</th>
+                                <th>單圖視覺 Token 數</th>
+                                <th>端側最低 GPU 需求</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: rgba(99, 102, 241, 0.1);">
+                                <td><strong>SmolVLA (本架構)</strong></td>
+                                <td class="mono" style="color:#818cf8; font-weight:bold;">454 M</td>
+                                <td>SigLIP (768d, 12L)</td>
+                                <td>SmolVLM2 (Pruned 16L)</td>
+                                <td><strong>Flow Matching (10 steps)</strong></td>
+                                <td class="mono" style="color:#34d399; font-weight:bold;">64 Tokens</td>
+                                <td><strong>RTX 4060 / 筆電 GPU / CPU</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong>OpenVLA</strong></td>
+                                <td class="mono">7,000 M (7B)</td>
+                                <td>SigLIP + DINOv2</td>
+                                <td>Llama-2 7B</td>
+                                <td>自回歸離散分詞 (256 bins)</td>
+                                <td class="mono">256 Tokens</td>
+                                <td>A100 (80GB) / 雙卡 A6000</td>
+                            </tr>
+                            <tr>
+                                <td><strong>&pi;0 (Physical Intelligence)</strong></td>
+                                <td class="mono">3,100 M (3.1B)</td>
+                                <td>SigLIP</td>
+                                <td>PaliGemma 3B</td>
+                                <td>Flow Matching Denoising</td>
+                                <td class="mono">256 Tokens</td>
+                                <td>RTX 4090 / A5000</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Octo</strong></td>
+                                <td class="mono">93 M / 27 M</td>
+                                <td>ViT-B / Patch 14</td>
+                                <td>無原生 LLM (純 Transformer)</td>
+                                <td>Diffusion Policy (DDIM 10 steps)</td>
+                                <td class="mono">~256 Tokens</td>
+                                <td>RTX 3060</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 7: PIPELINE & CODE -->
+        <div id="tab-pipeline" class="tab-panel">
+            <div class="section-card">
+                <div class="section-header">
+                    <div class="section-title-group">
+                        <h2>7. 資料處理 Pipeline 與核心代碼導讀</h2>
+                        <p>完整的 Pre/Post Processor 與推理執行流程</p>
+                    </div>
+                    <span class="badge badge-emerald">Code & Execution</span>
+                </div>
+
+                <h3>預處理 (Pre-Processor) 鏈條流程</h3>
+                <p>
+                    在 `src/lerobot/policies/smolvla/processor_smolvla.py` 中，數據經過標準化的流水線處理：
+                </p>
+                <ol>
+                    <li><code>steps.rename_observations</code>：重命名觀測鍵值以對齊預訓練權重要求。</li>
+                    <li><code>steps.add_batch_dim</code>：若為單步環境轉移（EnvTransition），自動增加 Batch 維度。</li>
+                    <li><code>NewLineTaskProcessorStep()</code>：確保自然語言指令字串結尾具有換行符 <code>\n</code>（SmolVLM 指令格式規範）。</li>
+                    <li><code>SubtaskBoundaryProcessorStep()</code>：自動在子任務前後插入 <code>&lt;subtask&gt;</code> 與 <code>&lt;/subtask&gt;</code> 特殊標記。</li>
+                    <li><code>TokenizerProcessorStep()</code>：將指令使用 AutoTokenizer 分詞，長度限制為 48。</li>
+                    <li><code>steps.to_device</code>：將全部張量轉移至指定計算設備（CUDA/MPS/CPU）。</li>
+                    <li><code>steps.normalize</code>：根據數據集統計量（Dataset Stats）將狀態與動作進行標準化（MEAN_STD 或 MIN_MAX）。</li>
+                </ol>
+
+                <h3>後處理 (Post-Processor) 鏈條流程</h3>
+                <ol>
+                    <li><code>steps.unnormalize</code>：將模型預測的標準化動作向量還原回真實世界數值。</li>
+                    <li><code>steps.to_cpu</code>：將張量轉移回 CPU 內存供機械臂驅動程式消費。</li>
+                    <li><strong>Aloha 關節與夾爪特殊變換 (`adapt_to_pi_aloha`)：</strong> 若使用 Aloha 機械臂，代碼會自動調用 `aloha_gripper_from_angular` 將弧度空間轉換回 Interbotix 線性夾爪空間，並將特定關節反向映射。</li>
+                </ol>
+
+                <h3>端到端控制代碼範例</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">Python</span>
+                        <span>Inference Example</span>
+                    </div>
+                    <pre><code><span class="keyword">from</span> lerobot.policies.smolvla <span class="keyword">import</span> SmolVLAConfig, SmolVLAPolicy
+<span class="keyword">from</span> lerobot.datasets <span class="keyword">import</span> LeRobotDataset
+<span class="keyword">import</span> torch
+
+<span class="comment"># 1. 載入預訓練 SmolVLA 模型權重</span>
+policy = SmolVLAPolicy.from_pretrained(<span class="string">"lerobot/smolvla_base"</span>)
+policy.to(<span class="string">"cuda"</span>)
+policy.eval()
+
+<span class="comment"># 2. 準備觀測環境數據</span>
+batch = {
+    <span class="string">"observation.images.front"</span>: torch.randn(1, 3, 512, 512, device=<span class="string">"cuda"</span>),
+    <span class="string">"observation.state"</span>: torch.zeros(1, 6, device=<span class="string">"cuda"</span>),
+    <span class="string">"observation.instruction"</span>: [<span class="string">"pick up the blue lego block\n"</span>],
+}
+
+<span class="comment"># 3. 呼叫動作生成 (內部自動管理 Action Queue 佇列)</span>
+<span class="keyword">with</span> torch.no_grad():
+    <span class="comment"># select_action 自動維護 50 步佇列，每次呼叫返回當前 1 步控制指令</span>
+    action = policy.select_action(batch)
+    <span class="function">print</span>(<span class="string">"Generated single-step action shape:"</span>, action.shape)  <span class="comment"># [6]</span></code></pre>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>SmolVLA 模型架構深度分析報告 &middot; 本報告基於 LeRobot 最新源代碼與官方研究成果生成</p>
+        <p style="margin-top:8px; color: var(--text-muted);">
+            參考文獻: Shukor et al., <em>SmolVLA: A Vision-Language-Action Model for Affordable and Efficient Robotics</em> (arXiv:2506.01844, 2025).
+        </p>
+    </footer>
+
+    <!-- Interactive Script -->
+    <script>
+        function switchTab(tabId) {
+            // Hide all tab panels
+            const panels = document.querySelectorAll('.tab-panel');
+            panels.forEach(p => p.classList.remove('active'));
+
+            // Deactivate all tab buttons
+            const buttons = document.querySelectorAll('.tab-btn');
+            buttons.forEach(b => b.classList.remove('active'));
+
+            // Deactivate header links
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(l => l.classList.remove('active'));
+
+            // Show selected panel
+            const targetPanel = document.getElementById('tab-' + tabId);
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+            }
+
+            // Highlight corresponding button
+            buttons.forEach(b => {
+                if (b.getAttribute('onclick').includes(tabId)) {
+                    b.classList.add('active');
+                }
+            });
+
+            // Highlight corresponding header link
+            navLinks.forEach(l => {
+                if (l.getAttribute('onclick') && l.getAttribute('onclick').includes(tabId)) {
+                    l.classList.add('active');
+                }
+            });
+
+            // Scroll tab button into view
+            const activeBtn = document.querySelector('.tab-btn.active');
+            if (activeBtn) {
+                activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }
+    </script>
+</body>
+</html>

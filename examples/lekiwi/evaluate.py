@@ -20,7 +20,7 @@ import time
 from lerobot.common.control_utils import predict_action
 from lerobot.datasets import LeRobotDataset
 from lerobot.policies import make_pre_post_processors
-from lerobot.policies.act import ACTPolicy
+from lerobot.policies.smolvla import SmolVLAPolicy
 from lerobot.policies.utils import make_robot_action
 from lerobot.processor import make_default_processors
 from lerobot.robots.lekiwi import LeKiwiClient, LeKiwiClientConfig
@@ -49,7 +49,7 @@ def main():
     robot = LeKiwiClient(robot_config)
 
     # Create policy
-    policy = ACTPolicy.from_pretrained(HF_MODEL_ID)
+    policy = SmolVLAPolicy.from_pretrained(HF_MODEL_ID)
 
     # Configure the dataset features
     action_features = hw_to_dataset_features(robot.action_features, ACTION)

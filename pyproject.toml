@@ -72,7 +72,7 @@ dependencies = [
     "requests>=2.32.0,<3.0.0",
 
     # Environments
-    # NOTE: gymnasium is used in lerobot.envs (lerobot-train, lerobot-eval), policies/factory,
+    # NOTE: gymnasium is used in lerobot.envs (lerobot-train), policies/factory,
     # and robots/unitree. Moving it to an optional extra would require import guards across many
     # tightly-coupled modules. Candidate for a future refactor to decouple envs from the core.
     "gymnasium>=1.1.1,<2.0.0",
@@ -138,9 +138,6 @@ viz = [
 # ── User-facing composite extras (map to CLI scripts) ─────
 # lerobot-record, lerobot-replay, lerobot-calibrate, lerobot-teleoperate, etc.
 core_scripts = ["lerobot[dataset]", "lerobot[hardware]", "lerobot[viz]"]
-# lerobot-eval -- base evaluation framework. You also need the policy's extra (e.g., lerobot[pi])
-# and the environment's extra (e.g., lerobot[pusht]) if evaluating in simulation.
-evaluation = ["lerobot[av-dep]"]
 # lerobot-dataset-viz, lerobot-imgtransform-viz
 dataset_viz = ["lerobot[dataset]", "lerobot[viz]"]
 
@@ -212,43 +209,14 @@ intelrealsense = [
 phone = ["hebi-py>=2.8.0,<2.12.0", "teleop>=0.1.0,<0.2.0", "fastapi<1.0", "lerobot[scipy-dep]"]
 
 # Policies
-diffusion = ["lerobot[diffusers-dep]"]
-wallx = [
+smolvla = [
     "lerobot[transformers-dep]",
-    "lerobot[peft-dep]",
-    "lerobot[scipy-dep]",
-    "torchdiffeq>=0.2.4,<0.3.0",
-    "lerobot[qwen-vl-utils-dep]",
+    "num2words>=0.5.14,<0.6.0",
+    "lerobot[accelerate-dep]",
+    "sentencepiece>=0.2.2",
 ]
-pi = ["lerobot[transformers-dep]", "lerobot[scipy-dep]"]
-molmoact2 = ["lerobot[transformers-dep]", "lerobot[peft-dep]", "lerobot[scipy-dep]"]
-smolvla = ["lerobot[transformers-dep]", "num2words>=0.5.14,<0.6.0", "lerobot[accelerate-dep]"]
-multi_task_dit = ["lerobot[transformers-dep]", "lerobot[diffusers-dep]"]
-groot = [
-    "lerobot[transformers-dep]",
-    "lerobot[peft-dep]",
-    "lerobot[diffusers-dep]",
-    "lerobot[dataset]", # NOTE: processor_groot builds a LeRobotDataset for relative-action training stats
-    "dm-tree>=0.1.8,<1.0.0",
-    "lerobot[timm-dep]",
-    "decord>=0.6.0,<1.0.0; (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
-]
-sarm = ["lerobot[transformers-dep]", "pydantic>=2.0.0,<3.0.0", "faker>=33.0.0,<35.0.0", "lerobot[matplotlib-dep]", "lerobot[qwen-vl-utils-dep]"]
-robometer = ["lerobot[transformers-dep]", "lerobot[qwen-vl-utils-dep]", "lerobot[peft-dep]"]
-topreward = ["lerobot[transformers-dep]"]
-xvla = ["lerobot[transformers-dep]"]
-eo1 = ["lerobot[transformers-dep]", "lerobot[qwen-vl-utils-dep]"]
-fastwam = [
-    "lerobot[transformers-dep]",
-    "lerobot[diffusers-dep]",
-]
-evo1 = ["lerobot[transformers-dep]"]
-hilserl = ["lerobot[transformers-dep]", "lerobot[dataset]", "gym-hil>=0.1.14,<0.2.0", "lerobot[grpcio-dep]", "lerobot[placo-dep]"]
-vla_jepa = ["lerobot[transformers-dep]", "lerobot[diffusers-dep]", "lerobot[qwen-vl-utils-dep]"]
-lingbot_va = ["lerobot[transformers-dep]", "lerobot[diffusers-dep]", "lerobot[accelerate-dep]"]
 
 # Features
-async = ["lerobot[grpcio-dep]", "lerobot[matplotlib-dep]"]
 peft = ["lerobot[transformers-dep]", "lerobot[peft-dep]"]
 
 # Annotation pipeline (lerobot-annotate). The only backend is ``openai``,
@@ -272,27 +240,6 @@ notebook = ["jupyter>=1.0.0,<2.0.0", "ipykernel>=6.0.0,<7.0.0"]
 test = ["pytest>=8.1.0,<10.0.0", "pytest-timeout>=2.4.0,<3.0.0", "pytest-cov>=5.0.0,<8.0.0", "mock-serial>=0.0.1,<0.1.0 ; sys_platform != 'win32'"]
 video_benchmark = ["scikit-image>=0.23.2,<0.26.0", "pandas>=2.2.2,<2.4.0"]
 
-# Simulation
-# NOTE: Explicitly listing scipy helps flatten the dependecy tree.
-aloha = ["lerobot[dataset]", "gym-aloha>=0.1.4,<0.2.0", "lerobot[scipy-dep]"]
-pusht = ["lerobot[dataset]", "gym-pusht>=0.1.5,<0.2.0", "pymunk>=6.6.0,<7.0.0"] # TODO: Fix pymunk version in gym-pusht instead
-libero = ["lerobot[dataset]", "lerobot[transformers-dep]", "hf-libero>=0.1.4,<0.2.0; sys_platform == 'linux'", "lerobot[scipy-dep]"]
-metaworld = ["lerobot[dataset]", "metaworld==3.0.0", "lerobot[scipy-dep]"]
-# NOTE: vlabench is NOT exposed as a `lerobot` extra. Its only distribution
-# is the OpenMOSS/VLABench GitHub repo (package name `VLABench`, no PyPI
-# release), so any `vlabench>=X` pip spec is unresolvable. Install it
-# manually alongside MuJoCo / dm-control — see docs/source/vlabench.mdx
-# for the recipe.
-# NOTE: robomme is NOT a pyproject extra — mani-skill hard-pins numpy<2
-# which conflicts with lerobot's numpy>=2 base pin, so the two trees can't
-# resolve into a single env. Install it only in the RoboMME Docker image
-# via `uv pip install --override` (see docker/Dockerfile.benchmark.robomme).
-# NOTE: robocasa is NOT exposed as a `lerobot` extra. Its setup.py pins
-# `lerobot==0.3.3` in install_requires, which cyclically shadows our own
-# workspace `lerobot` and makes the graph unsolvable under any resolver
-# (uv, pip). Install it manually alongside robosuite — see
-# docs/source/robocasa.mdx for the recipe.
-
 # All
 all = [
     # Feature-scoped extras
@@ -301,11 +248,6 @@ all = [
     "lerobot[training]",
     "lerobot[hardware]",
     "lerobot[viz]",
-    # NOTE(resolver hint): scipy is pulled in transitively via lerobot[scipy-dep] through
-    # multiple extras (aloha, metaworld, pi, wallx, phone). Listing it explicitly
-    # helps pip's resolver converge by constraining scipy early, before it encounters
-    # the loose scipy requirements from transitive deps like dm-control and metaworld.
-    "scipy>=1.14.0,<2.0.0",
     "lerobot[dynamixel]",
     "lerobot[feetech]",
     "lerobot[damiao]",
@@ -318,31 +260,12 @@ all = [
     "lerobot[rebot]",
     "lerobot[kinematics]",
     "lerobot[intelrealsense]",
-    "lerobot[diffusion]",
-    "lerobot[multi_task_dit]",
-    "lerobot[wallx]",
-    "lerobot[pi]",
-    "lerobot[molmoact2]",
     "lerobot[smolvla]",
-    "lerobot[fastwam]",
-    "lerobot[groot]",
-    "lerobot[xvla]",
-    "lerobot[evo1]",
-    "lerobot[hilserl]",
-    "lerobot[vla_jepa]",
-    "lerobot[lingbot_va]",
-    "lerobot[async]",
     "lerobot[dev]",
     "lerobot[test]",
     "lerobot[video_benchmark]",
-    "lerobot[aloha]",
-    "lerobot[pusht]",
     "lerobot[phone]",
-    "lerobot[libero]; sys_platform == 'linux'",
-    "lerobot[metaworld]",
-    "lerobot[sarm]",
-    "lerobot[robometer]",
-    "lerobot[topreward]",
+    "lerobot[annotations]",
     "lerobot[peft]",
     # "lerobot[unitree_g1]", TODO: Unitree requires specific installation instructions for unitree_sdk2
 ]
@@ -356,9 +279,7 @@ lerobot-replay="lerobot.scripts.lerobot_replay:main"
 lerobot-setup-motors="lerobot.scripts.lerobot_setup_motors:main"
 lerobot-teleoperate="lerobot.scripts.lerobot_teleoperate:main"
 lerobot-convert-dcp="lerobot.scripts.lerobot_convert_dcp:main"
-lerobot-eval="lerobot.scripts.lerobot_eval:main"
 lerobot-train="lerobot.scripts.lerobot_train:main"
-lerobot-train-tokenizer="lerobot.scripts.lerobot_train_tokenizer:main"
 lerobot-dataset-viz="lerobot.scripts.lerobot_dataset_viz:main"
 lerobot-info="lerobot.scripts.lerobot_info:main"
 lerobot-find-joint-limits="lerobot.scripts.lerobot_find_joint_limits:main"
@@ -384,7 +305,7 @@ torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
 torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
 
 [tool.setuptools.package-data]
-lerobot = ["envs/*.json", "annotations/steerable_pipeline/prompts/*.txt"]
+lerobot = ["annotations/steerable_pipeline/prompts/*.txt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -527,7 +448,6 @@ fail-under = 52
 output-format = "term-missing"
 color = true
 paths = ["src/lerobot"]
-exclude = ["src/lerobot/policies/molmoact2/molmoact2_hf_model"]
 
 # TODO: Enable mypy gradually module by module across multiple PRs
 # Uncomment [tool.mypy] first, then uncomment individual module overrides as they get proper type annotations
